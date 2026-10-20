@@ -227,7 +227,10 @@ SOURCES += \
 	common/lc_scene.cpp \
 	common/lc_selectdialog.cpp \
 	common/lc_setsdatabasedialog.cpp \
+	common/lc_shadowlibrary.cpp \
+	common/lc_shadowparser.cpp \
 	common/lc_shortcuts.cpp \
+	common/lc_snapshapes.cpp \
 	common/lc_spinnerwidget.cpp \
 	common/lc_string.cpp \
 	common/lc_stringcache.cpp \
@@ -313,7 +316,10 @@ HEADERS += \
 	common/lc_scene.h \
 	common/lc_selectdialog.h \
 	common/lc_setsdatabasedialog.h \
+	common/lc_shadowlibrary.h \
+	common/lc_shadowparser.h \
 	common/lc_shortcuts.h \
+	common/lc_snapshapes.h \
 	common/lc_spinnerwidget.h \
 	common/lc_string.h \
 	common/lc_stringcache.h \
