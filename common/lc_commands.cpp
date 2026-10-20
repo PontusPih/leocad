@@ -1299,6 +1299,20 @@ const lcCommand gCommands[] =
 		QT_TRANSLATE_NOOP("Status", "Rotate the focused train track around its last connection"),
 		""
 	},
+	// LC_PIECE_ROTATE_CONNECTION_PLUS
+	{
+		QT_TRANSLATE_NOOP("Action", "Piece.Rotate.ConnectionPlus"),
+		QT_TRANSLATE_NOOP("Menu", "Rotate Around Connection +90"),
+		QT_TRANSLATE_NOOP("Status", "Rotate the selection a quarter turn around the connection that attaches the focused piece"),
+		"X"
+	},
+	// LC_PIECE_ROTATE_CONNECTION_MINUS
+	{
+		QT_TRANSLATE_NOOP("Action", "Piece.Rotate.ConnectionMinus"),
+		QT_TRANSLATE_NOOP("Menu", "Rotate Around Connection -90"),
+		QT_TRANSLATE_NOOP("Status", "Rotate the selection a quarter turn around the connection that attaches the focused piece"),
+		"Z"
+	},
 	// LC_PIECE_MOVE_PLUSX
 	{
 		QT_TRANSLATE_NOOP("Action", "Piece.Move.PlusX"),

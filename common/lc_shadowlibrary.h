@@ -16,11 +16,16 @@ public:
 
 	// The lcSnapShapes functions for pieces; submodels have no shapes.
 	static std::optional<lcMatrix44> FindPlacement(const lcPieceData* MovingPieceData, const lcMatrix44& ReferenceTransform, const lcVector3& GrabPoint, const lcPieceData* TargetPieceData, const lcMatrix44& TargetTransform, const lcVector3& HitPoint, const lcVector3& ViewDirection);
+	static std::vector<lcSnapConnection> FindConnections(const lcPieceData* PieceData, const lcMatrix44& Transform, const std::vector<std::pair<const lcPieceData*, lcMatrix44>>& Others);
+	// Turns around the piece's bounding box centre when there is no pointer.
+	static std::optional<std::pair<lcVector3, lcMatrix33>> GetConnectionTurn(const lcPieceData* PieceData, const lcMatrix44& Transform, const std::vector<std::pair<const lcPieceData*, lcMatrix44>>& Others, int Direction, const std::optional<std::array<lcVector3, 2>>& PointerRay);
 
 private:
 	static std::string NormalizeName(const std::string& Name);
 	static const std::vector<QString>& GetShadowLines(const std::string& Name);
 	static std::vector<lcSnapCylinder> GetOwnCylinders(const std::string& Name);
+	// The shapes of each piece that has any, for the lcSnapShapes functions.
+	static std::vector<std::pair<const std::vector<lcSnapCylinder>*, lcMatrix44>> GetPieceShapes(const std::vector<std::pair<const lcPieceData*, lcMatrix44>>& Pieces);
 
 	static std::map<std::string, QString> mShadowFiles;
 	static std::map<std::string, std::vector<QString>> mShadowLines;
