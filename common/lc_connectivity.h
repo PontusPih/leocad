@@ -118,4 +118,5 @@ public:
 
 private:
 	static bool IsSeated(const lcConnectionCylinder& Cylinder, const lcMatrix44& Frame, const lcConnectionCylinder& Other, const lcMatrix44& OtherFrame);
+	static float GetDistanceToShape(const lcConnectionCylinder& Cylinder, const lcMatrix44& Frame, const lcVector3& Point);
 };
