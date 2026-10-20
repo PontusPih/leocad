@@ -1,5 +1,6 @@
 #include "lc_global.h"
 #include "lc_mainwindow.h"
+#include "lc_shadowlibrary.h"
 #include <QPrintDialog>
 #include <QPrintPreviewDialog>
 #include "lc_partselectionwidget.h"
@@ -545,6 +546,8 @@ void lcMainWindow::CreateMenus()
 	PieceMenu->addAction(mActions[LC_PIECE_PAINT_SELECTED]);
 	PieceMenu->addAction(mActions[LC_PIECE_ARRAY]);
 	PieceMenu->addAction(mActions[LC_PIECE_MINIFIG_WIZARD]);
+	PieceMenu->addAction(mActions[LC_PIECE_ROTATE_CONNECTION_PLUS]);
+	PieceMenu->addAction(mActions[LC_PIECE_ROTATE_CONNECTION_MINUS]);
 	PieceMenu->addAction(mActions[LC_PIECE_RESET_PIVOT_POINT]);
 	PieceMenu->addAction(mActions[LC_PIECE_REMOVE_KEY_FRAMES]);
 	PieceMenu->addSeparator();
@@ -2342,6 +2345,8 @@ void lcMainWindow::UpdateSelectedObjects(bool SelectionChanged)
 		mActions[LC_PIECE_TRAIN_TRACK_FOCUS_NEXT]->setEnabled(Flags & LC_SEL_TRAIN_TRACK_VISIBLE);
 		mActions[LC_PIECE_TRAIN_TRACK_FOCUS_PREVIOUS]->setEnabled(Flags & LC_SEL_TRAIN_TRACK_VISIBLE);
 		mActions[LC_PIECE_TRAIN_TRACK_ROTATE]->setEnabled(Flags & LC_SEL_TRAIN_TRACK_VISIBLE);
+		mActions[LC_PIECE_ROTATE_CONNECTION_PLUS]->setEnabled((Flags & LC_SEL_PIECE) && lcShadowLibrary::IsLoaded());
+		mActions[LC_PIECE_ROTATE_CONNECTION_MINUS]->setEnabled((Flags & LC_SEL_PIECE) && lcShadowLibrary::IsLoaded());
 		mActions[LC_PIECE_HIDE_SELECTED]->setEnabled(Flags & LC_SEL_VISIBLE_SELECTED);
 		mActions[LC_PIECE_HIDE_UNSELECTED]->setEnabled(Flags & LC_SEL_UNSELECTED);
 		mActions[LC_PIECE_UNHIDE_SELECTED]->setEnabled(Flags & LC_SEL_HIDDEN_SELECTED);
@@ -2968,7 +2973,10 @@ void lcMainWindow::HandleCommand(lcCommandId CommandId)
 {
 	lcView* ActiveView = GetActiveView();
 
-	if (ActiveView && CommandId != LC_EDIT_CANCEL)
+	// A turn around a connection is part of the drag: the piece is dragged on, turned.
+	const bool KeepsDrag = CommandId == LC_EDIT_CANCEL || CommandId == LC_PIECE_ROTATE_CONNECTION_PLUS || CommandId == LC_PIECE_ROTATE_CONNECTION_MINUS;
+
+	if (ActiveView && !KeepsDrag)
 		ActiveView->StopTracking(true);
 
 	lcModel* ActiveModel = ActiveView ? ActiveView->GetActiveModel() : nullptr;
@@ -3329,6 +3337,16 @@ void lcMainWindow::HandleCommand(lcCommandId CommandId)
 	case LC_PIECE_TRAIN_TRACK_ROTATE:
 		if (ActiveModel)
 			ActiveModel->RotateFocusedTrainTrack(1);
+		break;
+
+	case LC_PIECE_ROTATE_CONNECTION_PLUS:
+		if (ActiveModel)
+			ActiveModel->RotateAroundConnection(1, ActiveView->GetPointerRay());
+		break;
+
+	case LC_PIECE_ROTATE_CONNECTION_MINUS:
+		if (ActiveModel)
+			ActiveModel->RotateAroundConnection(-1, ActiveView->GetPointerRay());
 		break;
 
 	case LC_PIECE_MOVE_PLUSX:

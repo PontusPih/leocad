@@ -108,6 +108,37 @@ void lcView::UpdateProjectViews(const Project* Project)
 	}
 }
 
+bool lcView::IsMovingWithMouse(const lcModel* Model)
+{
+	for (lcView* View : mViews)
+	{
+		if (View->mTrackButton == lcTrackButton::None || View->GetActiveModel() != Model)
+			continue;
+
+		const lcTool Tool = View->GetCurrentTool();
+
+		if (Tool == lcTool::Move || Tool == lcTool::Rotate)
+			return true;
+	}
+
+	return false;
+}
+
+void lcView::RotateDraggedPiece(const lcPiece* Piece, const lcMatrix33& Rotation)
+{
+	// The drag's start transform is the orientation snapping prefers and the one a drag without
+	// a snap returns to; turn it too, so the next mouse move doesn't undo the turn.
+	for (lcView* View : mViews)
+	{
+		if (View->mTrackTool == lcTrackTool::MoveXYZ && View->mMouseDownPiece == Piece)
+		{
+			lcMatrix33 NewRotation = lcMul(lcMatrix33(View->mMouseDownTransform), Rotation);
+			NewRotation.Orthonormalize();
+			View->mMouseDownTransform = lcMatrix44(NewRotation, View->mMouseDownTransform.GetTranslation());
+		}
+	}
+}
+
 void lcView::UpdateAllViews()
 {
 	for (lcView* View : mViews)
@@ -343,6 +374,22 @@ void lcView::UnprojectPoints(lcVector3* Points, int NumPoints) const
 	lcUnprojectPoints(Points, NumPoints, GetWorldViewMatrix(), GetProjectionMatrix(), Viewport);
 }
 
+std::array<lcVector3, 2> lcView::GetPointerRay() const
+{
+	std::array<lcVector3, 2> Points = {{ lcVector3((float)mMouseX, (float)mMouseY, 0.0f), lcVector3((float)mMouseX, (float)mMouseY, 1.0f) }};
+	UnprojectPoints(Points.data(), 2);
+
+	if (GetActiveModel() != mModel)
+	{
+		const lcMatrix44 InverseMatrix = lcMatrix44AffineInverse(mActiveSubmodelTransform);
+
+		for (lcVector3& Point : Points)
+			Point = lcMul31(Point, InverseMatrix);
+	}
+
+	return Points;
+}
+
 lcMatrix44 lcView::GetProjectionMatrix() const
 {
 	float AspectRatio = (float)mWidth / (float)mHeight;
@@ -482,6 +529,11 @@ void lcView::ShowContextMenu() const
 
 	Popup->addAction(Actions[LC_PIECE_CONTROL_POINT_INSERT]);
 	Popup->addAction(Actions[LC_PIECE_CONTROL_POINT_REMOVE]);
+
+	Popup->addSeparator();
+
+	Popup->addAction(Actions[LC_PIECE_ROTATE_CONNECTION_PLUS]);
+	Popup->addAction(Actions[LC_PIECE_ROTATE_CONNECTION_MINUS]);
 
 	Popup->addSeparator();
 

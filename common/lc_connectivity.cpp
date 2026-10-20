@@ -339,3 +339,68 @@ std::optional<lcMatrix44> lcConnectivity::FindPlacement(const std::vector<lcConn
 
 	return Best;
 }
+
+std::vector<lcSnapConnection> lcConnectivity::FindConnections(const std::vector<lcConnectionCylinder>& Cylinders, const lcMatrix44& Transform, const std::vector<std::pair<const std::vector<lcConnectionCylinder>*, lcMatrix44>>& Others)
+{
+	std::vector<lcSnapConnection> Connections;
+	const lcVector3 ShapeAxis(0.0f, 0.0f, 1.0f);
+
+	for (const lcConnectionCylinder& Cylinder : Cylinders)
+	{
+		const lcMatrix44 Frame = lcMul(lcMatrix44LDrawToLeoCAD(Cylinder.Transform), Transform);
+		const lcVector3 Axis = lcNormalize(lcMul30(ShapeAxis, Frame));
+		bool Connected = false;
+
+		for (const auto& [OtherCylinders, OtherTransform] : Others)
+		{
+			for (const lcConnectionCylinder& OtherCylinder : *OtherCylinders)
+			{
+				if (!AreCompatible(Cylinder, OtherCylinder))
+					continue;
+
+				const lcMatrix44 OtherFrame = lcMul(lcMatrix44LDrawToLeoCAD(OtherCylinder.Transform), OtherTransform);
+
+				if (lcLength(OtherFrame.GetTranslation() - Frame.GetTranslation()) < 0.5f && lcDot(lcNormalize(lcMul30(ShapeAxis, OtherFrame)), Axis) > 0.99f)
+				{
+					Connected = true;
+					break;
+				}
+			}
+
+			if (Connected)
+				break;
+		}
+
+		if (Connected)
+			Connections.push_back({ Frame.GetTranslation(), Axis });
+	}
+
+	return Connections;
+}
+
+std::optional<std::pair<lcVector3, lcMatrix33>> lcConnectivity::GetConnectionTurn(const std::vector<lcConnectionCylinder>& Cylinders, const lcMatrix44& Transform, const lcVector3& Center, const std::vector<std::pair<const std::vector<lcConnectionCylinder>*, lcMatrix44>>& Others, int Direction, const std::optional<std::array<lcVector3, 2>>& PointerRay)
+{
+	const std::vector<lcSnapConnection> Connections = FindConnections(Cylinders, Transform, Others);
+
+	if (Connections.empty())
+		return std::nullopt;
+
+	// Turn around the connection the pointer is at; otherwise the one closest to the piece's
+	// centre, so it turns in place.
+	const lcVector3 PieceCenter = lcMul31(Center, Transform);
+	const auto Distance = [&PointerRay, &PieceCenter](const lcSnapConnection& Connection)
+	{
+		if (PointerRay)
+			return lcRayPointDistance(Connection.Position, (*PointerRay)[0], (*PointerRay)[1]);
+
+		return lcLength(Connection.Position - PieceCenter);
+	};
+
+	const lcSnapConnection* Pivot = &Connections.front();
+
+	for (const lcSnapConnection& Connection : Connections)
+		if (Distance(Connection) < Distance(*Pivot) - 0.01f)
+			Pivot = &Connection;
+
+	return std::make_pair(Pivot->Position, lcMatrix33FromAxisAngle(Pivot->Axis, Direction * LC_PI / 2.0f));
+}

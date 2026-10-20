@@ -1000,6 +1000,16 @@
         <translation type="unfinished">Piece.TrainTrack.Rotate</translation>
     </message>
     <message>
+        <location filename="../common/lc_commands.cpp" line="1505"/>
+        <source>Piece.Rotate.ConnectionPlus</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../common/lc_commands.cpp" line="1513"/>
+        <source>Piece.Rotate.ConnectionMinus</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../common/lc_commands.cpp" line="1489"/>
         <source>Piece.Move.PlusX</source>
         <translation>Dílek.Posuny.PlusX</translation>
@@ -2604,6 +2614,16 @@
         <source>Rotate Train Track</source>
         <translatorcomment>Machine-translated draft (Google Translate); requires human review.</translatorcomment>
         <translation type="unfinished">Otočit vlakovou trať</translation>
+    </message>
+    <message>
+        <location filename="../common/lc_commands.cpp" line="1506"/>
+        <source>Rotate Around Connection +90</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../common/lc_commands.cpp" line="1514"/>
+        <source>Rotate Around Connection -90</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../common/lc_commands.cpp" line="1490"/>
@@ -5784,6 +5804,12 @@ Formát souboru není rozpoznán.</translation>
         <translation type="unfinished">Otočte zaměřenou vlakovou trať kolem jejího posledního spojení</translation>
     </message>
     <message>
+        <location filename="../common/lc_commands.cpp" line="1507"/>
+        <location filename="../common/lc_commands.cpp" line="1515"/>
+        <source>Rotate the selection a quarter turn around the connection that attaches the focused piece</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../common/lc_commands.cpp" line="1491"/>
         <location filename="../common/lc_commands.cpp" line="1499"/>
         <source>Move selected objects along the X axis</source>
@@ -6291,6 +6317,16 @@ Formát souboru není rozpoznán.</translation>
         <source>&lt;p&gt;&lt;b&gt;Add Keys&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Enable this when an edit should create a new animation key at the current step. For example, moving a piece at a later step can give it a different position there. The diamond controls in Properties show and toggle keys for individual properties.&lt;/p&gt;</source>
         <translatorcomment>Machine-translated draft (Google Translate); requires human review.</translatorcomment>
         <translation type="unfinished">&lt;p&gt;&lt;b&gt;Přidat klíče&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Povolte, když má úprava v aktuálním kroku vytvořit nový klíč animace. Například posunutím figurky v pozdějším kroku může mít jinou pozici. Diamantové ovládací prvky ve vlastnostech zobrazují a přepínají klávesy pro jednotlivé vlastnosti.&lt;/p&gt;</translation>
+    </message>
+    <message>
+        <location filename="../common/lc_commands.cpp" line="1508"/>
+        <source>&lt;p&gt;&lt;b&gt;Rotate Around Connection +90&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Turn the selection a quarter turn around the connection that attaches the focused piece to another piece, so it stays connected. The connection nearest the pointer is used. Also works while dragging a piece. Connections come from the LDCad shadow library set in Preferences.&lt;/p&gt;</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../common/lc_commands.cpp" line="1516"/>
+        <source>&lt;p&gt;&lt;b&gt;Rotate Around Connection -90&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Turn the selection a quarter turn around the connection that attaches the focused piece to another piece, so it stays connected. The connection nearest the pointer is used. Also works while dragging a piece. Connections come from the LDCad shadow library set in Preferences.&lt;/p&gt;</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>

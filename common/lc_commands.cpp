@@ -1500,6 +1500,22 @@ const lcCommand gCommands[] =
 		"",
 		""
 	},
+	// LC_PIECE_ROTATE_CONNECTION_PLUS
+	{
+		QT_TRANSLATE_NOOP("Action", "Piece.Rotate.ConnectionPlus"),
+		QT_TRANSLATE_NOOP("Menu", "Rotate Around Connection +90"),
+		QT_TRANSLATE_NOOP("Status", "Rotate the selection a quarter turn around the connection that attaches the focused piece"),
+		QT_TRANSLATE_NOOP("WhatsThis", "<p><b>Rotate Around Connection +90</b></p><p>Turn the selection a quarter turn around the connection that attaches the focused piece to another piece, so it stays connected. The connection nearest the pointer is used. Also works while dragging a piece. Connections come from the LDCad shadow library set in Preferences.</p>"),
+		"X"
+	},
+	// LC_PIECE_ROTATE_CONNECTION_MINUS
+	{
+		QT_TRANSLATE_NOOP("Action", "Piece.Rotate.ConnectionMinus"),
+		QT_TRANSLATE_NOOP("Menu", "Rotate Around Connection -90"),
+		QT_TRANSLATE_NOOP("Status", "Rotate the selection a quarter turn around the connection that attaches the focused piece"),
+		QT_TRANSLATE_NOOP("WhatsThis", "<p><b>Rotate Around Connection -90</b></p><p>Turn the selection a quarter turn around the connection that attaches the focused piece to another piece, so it stays connected. The connection nearest the pointer is used. Also works while dragging a piece. Connections come from the LDCad shadow library set in Preferences.</p>"),
+		"Z"
+	},
 	// LC_PIECE_MOVE_PLUSX
 	{
 		QT_TRANSLATE_NOOP("Action", "Piece.Move.PlusX"),
