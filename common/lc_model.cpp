@@ -10,6 +10,7 @@
 #include "lc_profile.h"
 #include "lc_library.h"
 #include "lc_shadowlibrary.h"
+#include "lc_piececonnectivity.h"
 #include "lc_scene.h"
 #include "lc_traintrack.h"
 #include "lc_file.h"
@@ -3382,6 +3383,87 @@ void lcModel::RotateFocusedTrainTrack(int Direction)
 	EndHistorySequence(tr("Rotate"));
 
 	gMainWindow->UpdateSelectedObjects(true);
+}
+
+// Turns the selection a quarter turn around a connection that attaches the focused piece to the
+// rest of the model, so an asymmetrical piece can be turned in place without coming loose.
+void lcModel::RotateAroundConnection(int Direction, const std::array<lcVector3, 2>& PointerRay)
+{
+	const lcObject* Focus = GetFocusObject();
+
+	if (!Focus || !Focus->IsPiece())
+		return;
+
+	lcPiece* FocusPiece = (lcPiece*)Focus;
+	std::vector<std::pair<const lcPieceData*, lcMatrix44>> Others;
+
+	// The parts of submodels count individually, at their world positions.
+	const std::function<void(const lcModel*, const lcMatrix44&)> AddSubModelParts = [&Others, &AddSubModelParts](const lcModel* SubModel, const lcMatrix44& Transform)
+	{
+		for (const std::unique_ptr<lcPiece>& Piece : SubModel->GetPieces())
+		{
+			if (!Piece->IsVisibleInSubModel())
+				continue;
+
+			const lcMatrix44 World = lcMul(Piece->mModelWorld, Transform);
+
+			if (Piece->mPieceData->IsModel())
+				AddSubModelParts(Piece->mPieceData->GetModel(), World);
+			else
+				Others.emplace_back(Piece->mPieceData.Get(), World);
+		}
+	};
+
+	for (const std::unique_ptr<lcPiece>& Piece : mPieces)
+	{
+		if (Piece->IsSelected() || !Piece->IsVisible(mCurrentStep))
+			continue;
+
+		if (Piece->mPieceData->IsModel())
+			AddSubModelParts(Piece->mPieceData->GetModel(), Piece->mModelWorld);
+		else
+			Others.emplace_back(Piece->mPieceData.Get(), Piece->mModelWorld);
+	}
+
+	const std::optional<std::pair<lcVector3, lcMatrix33>> Turn = lcPieceConnectivity::GetConnectionTurn(FocusPiece->mPieceData.Get(), FocusPiece->mModelWorld, Others, Direction, PointerRay);
+
+	if (!Turn)
+		return;
+
+	const auto& [PivotPosition, Rotation] = *Turn;
+
+	// During a drag the turn becomes part of the drag's own undo step.
+	const bool Dragging = lcView::IsMovingWithMouse(this);
+
+	if (!Dragging)
+	{
+		BeginHistorySequence();
+		BeginEditHistory();
+	}
+
+	for (const std::unique_ptr<lcPiece>& Piece : mPieces)
+	{
+		if (!Piece->IsSelected())
+			continue;
+
+		lcMatrix33 NewRotation = lcMul(lcMatrix33(Piece->mModelWorld), Rotation);
+		NewRotation.Orthonormalize();
+
+		Piece->SetPosition(lcMul(Piece->mModelWorld.GetTranslation() - PivotPosition, Rotation) + PivotPosition, mCurrentStep, gMainWindow->GetAddKeys());
+		Piece->SetRotation(NewRotation, mCurrentStep, gMainWindow->GetAddKeys());
+		Piece->UpdatePosition(mCurrentStep);
+	}
+
+	if (!Dragging)
+	{
+		EndEditHistory();
+		EndHistorySequence(tr("Rotate"));
+	}
+
+	lcView::RotateDraggedPiece(FocusPiece, Rotation);
+
+	gMainWindow->UpdateSelectedObjects(true);
+	UpdateAllViews();
 }
 
 void lcModel::UpdateTrainTrackConnections(lcPiece* TrackPiece, bool IgnoreSelected) const

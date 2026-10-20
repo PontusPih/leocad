@@ -220,6 +220,10 @@ public:
 	static std::vector<lcView*> GetModelViews(const lcModel* Model);
 	static void UpdateProjectViews(const Project* Project);
 	static void UpdateAllViews();
+	// Keeps a turn of a dragged piece for the rest of the drag.
+	static void RotateDraggedPiece(const lcPiece* Piece, const lcMatrix33& Rotation);
+	// Some view is moving or rotating pieces of Model with the mouse.
+	static bool IsMovingWithMouse(const lcModel* Model);
 
 	static void CreateResources(lcContext* Context);
 	static void DestroyResources(lcContext* Context);
@@ -303,6 +307,8 @@ public:
 	lcVector3 ProjectPoint(const lcVector3& Point) const;
 	lcVector3 UnprojectPoint(const lcVector3& Point) const;
 	void UnprojectPoints(lcVector3* Points, int NumPoints) const;
+	// Start and end of the line under the pointer, in the active model's coordinates.
+	std::array<lcVector3, 2> GetPointerRay() const;
 	lcMatrix44 GetProjectionMatrix() const;
 
 	bool BeginRenderToImage(int Width, int Height);
