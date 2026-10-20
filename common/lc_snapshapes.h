@@ -15,6 +15,15 @@ struct lcSnapSection
 	float Length;
 };
 
+// Which scaling of a sub-file a shape survives; it is dropped from scaled sub-files otherwise.
+enum class lcSnapScale
+{
+	None,
+	Length,
+	Radius,
+	LengthOrRadius
+};
+
 struct lcSnapCylinder
 {
 	lcMatrix44 Transform; // In LDraw part coordinates, the shape runs along its -Y axis.
@@ -24,6 +33,9 @@ struct lcSnapCylinder
 	QString Group;
 	bool Slide;
 	bool Center;
+	bool ClosedStart; // caps: A, the end at pos (or the near end of a centered shape).
+	bool ClosedEnd; // caps: B, the far end along the shape.
+	lcSnapScale Scale;
 	bool InheritMirrored; // mirror=cor (the default): flip a radius axis when used mirrored; mirror=none: drop it.
 	std::string Source;
 
@@ -35,6 +47,23 @@ struct lcSnapCylinder
 	lcVector3 GetAxis() const
 	{
 		return lcNormalize(lcMul30(lcVector3(0.0f, -1.0f, 0.0f), Transform));
+	}
+
+	float GetLength() const
+	{
+		float Length = 0.0f;
+
+		for (const lcSnapSection& Section : Sections)
+			Length += Section.Length;
+
+		return Length;
+	}
+
+	// Start and end along the shape's axis, from its position.
+	std::pair<float, float> GetExtent() const
+	{
+		const float Length = GetLength();
+		return Center ? std::make_pair(-Length / 2.0f, Length / 2.0f) : std::make_pair(0.0f, Length);
 	}
 };
 
@@ -64,7 +93,12 @@ public:
 	// nothing if they aren't attached.
 	static std::optional<std::pair<lcVector3, lcMatrix33>> GetConnectionTurn(const std::vector<lcSnapCylinder>& Cylinders, const lcMatrix44& Transform, const lcVector3& Center, const std::vector<std::pair<const std::vector<lcSnapCylinder>*, lcMatrix44>>& Others, int Direction, const std::optional<std::array<lcVector3, 2>>& PointerRay);
 
+	// Where a male shape can sit along a female one running the same way, as the male's offset
+	// from the female's position, or nothing if it can't.
+	static std::optional<std::pair<float, float>> GetInsertRange(const lcSnapCylinder& Male, const lcSnapCylinder& Female);
 	static bool IsRigid(const lcMatrix44& m);
 	static float GetDeterminant(const lcMatrix44& m);
+
 private:
+	static float GetDistanceToShape(const lcSnapCylinder& Cylinder, const lcMatrix44& Frame, const lcVector3& Point);
 };

@@ -152,15 +152,40 @@ std::optional<std::vector<lcVector3>> lcShadowParser::ParseGridOffsets(const std
 }
 
 // Parts are often built from scaled and mirrored sub-files. Snap frames must stay plain
-// rotations, so scaling is removed (only the position matters for matching) and a mirrored
-// frame is corrected by flipping a radius axis (mirror=cor), or dropped (mirror=none).
-// Returns false if the cylinder should be dropped.
+// rotations: scaling is moved into the section lengths or radii where the shape allows it
+// (scale=YOnly, ROnly, YandR), and a mirrored frame is corrected by flipping a radius axis
+// (mirror=cor). Returns false if the cylinder should be dropped.
 bool lcShadowParser::NormalizeFrame(lcSnapCylinder& Cylinder)
 {
+	float Scales[3];
+
 	for (int Row = 0; Row < 3; Row++)
 	{
-		const lcVector3 Axis = lcNormalize(lcVector3(Cylinder.Transform.r[Row]));
-		Cylinder.Transform.r[Row] = lcVector4(Axis, 0.0f);
+		Scales[Row] = lcLength(lcVector3(Cylinder.Transform.r[Row]));
+		Cylinder.Transform.r[Row] = lcVector4(lcVector3(Cylinder.Transform.r[Row]) / Scales[Row], 0.0f);
+	}
+
+	const auto IsOne = [](float Scale) { return fabsf(Scale - 1.0f) < 0.001f; };
+	const bool ScalesLength = !IsOne(Scales[1]);
+	const bool ScalesRadius = !IsOne(Scales[0]) || !IsOne(Scales[2]);
+
+	if (ScalesLength || ScalesRadius)
+	{
+		const bool LengthOnly = ScalesLength && !ScalesRadius;
+		const bool RadiusOnly = ScalesRadius && !ScalesLength && fabsf(Scales[0] - Scales[2]) < 0.001f;
+		const bool Allowed = (LengthOnly && (Cylinder.Scale == lcSnapScale::Length || Cylinder.Scale == lcSnapScale::LengthOrRadius)) ||
+		                     (RadiusOnly && (Cylinder.Scale == lcSnapScale::Radius || Cylinder.Scale == lcSnapScale::LengthOrRadius));
+
+		if (!Allowed)
+			return false;
+
+		for (lcSnapSection& Section : Cylinder.Sections)
+		{
+			if (LengthOnly)
+				Section.Length *= Scales[1];
+			else
+				Section.Radius *= Scales[0];
+		}
 	}
 
 	if (lcSnapShapes::GetDeterminant(Cylinder.Transform) > 0.0f)
@@ -192,6 +217,23 @@ std::vector<lcSnapCylinder> lcShadowParser::ParseCylinder(const QString& Line, c
 	Cylinder.Group = GetParam(Params, "group");
 	Cylinder.Slide = IsParamTrue(Params, "slide");
 	Cylinder.Center = IsParamTrue(Params, "center");
+
+	const QString Caps = GetParam(Params, "caps").toLower();
+	const bool OneCap = Caps.isEmpty() || Caps == QLatin1String("one");
+	Cylinder.ClosedStart = Caps == QLatin1String("two") || Caps == QLatin1String("a") || (OneCap && Cylinder.Gender == lcSnapGender::Male);
+	Cylinder.ClosedEnd = Caps == QLatin1String("two") || Caps == QLatin1String("b") || (OneCap && Cylinder.Gender == lcSnapGender::Female);
+
+	const QString Scale = GetParam(Params, "scale").toLower();
+
+	if (Scale == QLatin1String("yonly"))
+		Cylinder.Scale = lcSnapScale::Length;
+	else if (Scale == QLatin1String("ronly"))
+		Cylinder.Scale = lcSnapScale::Radius;
+	else if (Scale == QLatin1String("yandr"))
+		Cylinder.Scale = lcSnapScale::LengthOrRadius;
+	else
+		Cylinder.Scale = lcSnapScale::None;
+
 	Cylinder.InheritMirrored = GetParam(Params, "mirror").compare(QLatin1String("none"), Qt::CaseInsensitive) != 0;
 	Cylinder.Source = Source;
 

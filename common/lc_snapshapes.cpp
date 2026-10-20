@@ -22,6 +22,54 @@ bool lcSnapShapes::IsRigid(const lcMatrix44& m)
 	return fabsf(GetDeterminant(m) - 1.0f) < 0.01f;
 }
 
+// Where a male shape can sit along a female one running the same way, as the male's offset from
+// the female's position: as deep as possible without passing a closed end of either.
+std::optional<std::pair<float, float>> lcSnapShapes::GetInsertRange(const lcSnapCylinder& Male, const lcSnapCylinder& Female)
+{
+	const auto [MaleStart, MaleEnd] = Male.GetExtent();
+	const auto [FemaleStart, FemaleEnd] = Female.GetExtent();
+	float Low = FemaleStart - MaleEnd;
+	float High = FemaleEnd - MaleStart;
+
+	if (Female.ClosedStart)
+		Low = std::max(Low, FemaleStart - MaleStart);
+
+	if (Female.ClosedEnd)
+		High = std::min(High, FemaleEnd - MaleEnd);
+
+	if (Male.ClosedStart)
+		High = std::min(High, FemaleStart - MaleStart);
+
+	if (Male.ClosedEnd)
+		Low = std::max(Low, FemaleEnd - MaleEnd);
+
+	if (Low > High + 0.01f)
+		return std::nullopt;
+
+	// The offsets where the shorter shape is completely inside the longer one.
+	const float FullLow = std::min(FemaleStart - MaleStart, FemaleEnd - MaleEnd);
+	const float FullHigh = std::max(FemaleStart - MaleStart, FemaleEnd - MaleEnd);
+
+	if (FullHigh < Low)
+		return std::make_pair(Low, Low);
+
+	if (FullLow > High)
+		return std::make_pair(High, High);
+
+	return std::make_pair(std::max(Low, FullLow), std::min(High, FullHigh));
+}
+
+// Distance from Point to the axis of a shape at Frame (LeoCAD coordinates, shape along +Z).
+float lcSnapShapes::GetDistanceToShape(const lcSnapCylinder& Cylinder, const lcMatrix44& Frame, const lcVector3& Point)
+{
+	const auto [Start, End] = Cylinder.GetExtent();
+	const lcVector3 Position = Frame.GetTranslation();
+	const lcVector3 Axis = lcNormalize(lcMul30(lcVector3(0.0f, 0.0f, 1.0f), Frame));
+	const float Along = lcClamp(lcDot(Point - Position, Axis), Start, End);
+
+	return lcLength(Position + Axis * Along - Point);
+}
+
 bool lcSnapShapes::IsRound(const lcSnapCylinder& Cylinder)
 {
 	return std::all_of(Cylinder.Sections.begin(), Cylinder.Sections.end(), [](const lcSnapSection& Section) { return Section.Shape != QLatin1String("A") && Section.Shape != QLatin1String("S"); });
@@ -38,7 +86,7 @@ bool lcSnapShapes::AreCompatible(const lcSnapCylinder& a, const lcSnapCylinder& 
 	// A round male shape also fits a square female one (most anti studs are stored as squares).
 	for (const lcSnapSection& MaleSection : Male.Sections)
 		for (const lcSnapSection& FemaleSection : Female.Sections)
-			if (MaleSection.Radius == FemaleSection.Radius && (MaleSection.Shape == FemaleSection.Shape || (MaleSection.Shape == QLatin1String("R") && FemaleSection.Shape == QLatin1String("S"))))
+			if (fabsf(MaleSection.Radius - FemaleSection.Radius) < 0.01f && (MaleSection.Shape == FemaleSection.Shape || (MaleSection.Shape == QLatin1String("R") && FemaleSection.Shape == QLatin1String("S"))))
 				return true;
 
 	return false;
@@ -54,8 +102,9 @@ std::optional<lcMatrix44> lcSnapShapes::FindPlacement(const std::vector<lcSnapCy
 	const lcVector3 ShapeAxis(0.0f, 0.0f, 1.0f);
 
 	// Connection candidates: the target's points near the cursor that open towards the camera
-	// (a stud points out of its part, a hole opens against the way its shape runs), paired with
-	// the moving piece's matching points near where it was grabbed.
+	// (a stud points out of its part, a hole opens against the way its shape runs; a bar or a
+	// hole open at both ends can be reached from any side), paired with the moving piece's
+	// matching points near where it was grabbed.
 	struct lcTargetPoint
 	{
 		const lcSnapCylinder* Cylinder;
@@ -71,11 +120,12 @@ std::optional<lcMatrix44> lcSnapShapes::FindPlacement(const std::vector<lcSnapCy
 		const lcMatrix44 Frame = lcMul(lcMatrix44LDrawToLeoCAD(Cylinder.Transform), TargetTransform);
 		const lcVector3 Axis = lcNormalize(lcMul30(ShapeAxis, Frame));
 		const lcVector3 Outward = Cylinder.Gender == lcSnapGender::Male ? Axis : -Axis;
+		const bool OpenBothEnds = !Cylinder.ClosedStart && !Cylinder.ClosedEnd;
 
-		if (lcDot(Outward, ViewDirection) > -0.05f)
+		if (!OpenBothEnds && lcDot(Outward, ViewDirection) > -0.05f)
 			continue;
 
-		const float Distance = lcLength(Frame.GetTranslation() - HitPoint);
+		const float Distance = GetDistanceToShape(Cylinder, Frame, HitPoint);
 		Targets.push_back({ &Cylinder, Frame, Distance });
 		NearestDistance = std::min(NearestDistance, Distance);
 	}
@@ -85,9 +135,9 @@ std::optional<lcMatrix44> lcSnapShapes::FindPlacement(const std::vector<lcSnapCy
 	const lcMatrix33 ReferenceRotation(ReferenceTransform);
 	std::optional<lcMatrix44> Best;
 
-	// Small round shapes (bars, and the pins under 1x plates and bricks going into hollow studs)
-	// are only used when nothing bigger fits: their snap info is stretched along tall bricks,
-	// which would sink the brick over the stud.
+	// Small round shapes (bars, and the pins under 1x plates and bricks, which fit hollow studs)
+	// are only used when nothing bigger fits: a brick held over a stud is meant to go on with an
+	// anti stud.
 	for (int Pass = 0; Pass < 2 && !Best; Pass++)
 	{
 		float BestScore = FLT_MAX;
@@ -106,14 +156,27 @@ std::optional<lcMatrix44> lcSnapShapes::FindPlacement(const std::vector<lcSnapCy
 			if ((MaxRadius < 5.0f) != (Pass == 1))
 				continue;
 
+			const lcVector3 TargetAxis = lcNormalize(lcMul30(ShapeAxis, Target.Frame));
+
 			for (const lcSnapCylinder& Moving : MovingCylinders)
 			{
 				if (!AreCompatible(Moving, *Target.Cylinder))
 					continue;
 
+				const bool MovingIsMale = Moving.Gender == lcSnapGender::Male;
+				const std::optional<std::pair<float, float>> InsertRange = MovingIsMale ? GetInsertRange(Moving, *Target.Cylinder) : GetInsertRange(*Target.Cylinder, Moving);
+
+				if (!InsertRange)
+					continue;
+
+				// How far the moving piece may be shifted along the axis from the aligned positions.
+				const float ShiftLow = MovingIsMale ? InsertRange->first : -InsertRange->second;
+				const float ShiftHigh = MovingIsMale ? InsertRange->second : -InsertRange->first;
+				const bool Slide = Moving.Slide || Target.Cylinder->Slide;
+
 				const lcMatrix44 MovingFrame = lcMatrix44LDrawToLeoCAD(Moving.Transform);
 				const lcMatrix44 MovingInverse = lcMatrix44AffineInverse(MovingFrame);
-				const float Score = Target.Distance + lcLength(MovingFrame.GetTranslation() - GrabPoint);
+				const float Score = Target.Distance + GetDistanceToShape(Moving, MovingFrame, GrabPoint);
 
 				if (Score > BestScore + 0.5f)
 					continue;
@@ -132,10 +195,22 @@ std::optional<lcMatrix44> lcSnapShapes::FindPlacement(const std::vector<lcSnapCy
 
 				for (float Angle : Angles)
 				{
-					const lcMatrix44 Placement = lcMul(lcMul(MovingInverse, lcMatrix44RotationZ(Angle)), Target.Frame);
+					lcMatrix44 Placement = lcMul(lcMul(MovingInverse, lcMatrix44RotationZ(Angle)), Target.Frame);
 
 					if (!IsRigid(Placement))
 						continue;
+
+					// Along the axis, follow the cursor where the shapes can slide; otherwise take the
+					// end of the allowed range nearer to it.
+					const float CursorShift = lcDot(HitPoint - lcMul31(GrabPoint, Placement), TargetAxis);
+					float Shift;
+
+					if (Slide)
+						Shift = lcClamp(CursorShift, ShiftLow, ShiftHigh);
+					else
+						Shift = fabsf(CursorShift - ShiftLow) <= fabsf(CursorShift - ShiftHigh) ? ShiftLow : ShiftHigh;
+
+					Placement.SetTranslation(Placement.GetTranslation() + TargetAxis * Shift);
 
 					const lcMatrix33 Rotation(Placement);
 					float Trace = 0.0f;
@@ -178,7 +253,21 @@ std::vector<lcSnapConnection> lcSnapShapes::FindConnections(const std::vector<lc
 
 				const lcMatrix44 OtherFrame = lcMul(lcMatrix44LDrawToLeoCAD(OtherCylinder.Transform), OtherTransform);
 
-				if (lcLength(OtherFrame.GetTranslation() - Frame.GetTranslation()) < 0.5f && lcDot(lcNormalize(lcMul30(ShapeAxis, OtherFrame)), Axis) > 0.99f)
+				if (lcDot(lcNormalize(lcMul30(ShapeAxis, OtherFrame)), Axis) < 0.99f)
+					continue;
+
+				// On the same axis, and seated as deep as the shapes allow.
+				const lcVector3 Offset = Frame.GetTranslation() - OtherFrame.GetTranslation();
+				const float Along = lcDot(Offset, Axis);
+
+				if (lcLength(Offset - Axis * Along) > 0.5f)
+					continue;
+
+				const bool IsMale = Cylinder.Gender == lcSnapGender::Male;
+				const std::optional<std::pair<float, float>> InsertRange = IsMale ? GetInsertRange(Cylinder, OtherCylinder) : GetInsertRange(OtherCylinder, Cylinder);
+				const float MaleOffset = IsMale ? Along : -Along;
+
+				if (InsertRange && MaleOffset > InsertRange->first - 0.5f && MaleOffset < InsertRange->second + 0.5f)
 				{
 					Connected = true;
 					break;
