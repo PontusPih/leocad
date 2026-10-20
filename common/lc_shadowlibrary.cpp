@@ -4,6 +4,7 @@
 #include "lc_library.h"
 #include "lc_application.h"
 #include "lc_file.h"
+#include "lc_piecedata.h"
 
 std::map<std::string, QString> lcShadowLibrary::mShadowFiles;
 std::map<std::string, std::vector<QString>> lcShadowLibrary::mShadowLines;
@@ -204,4 +205,12 @@ const std::vector<lcSnapCylinder>& lcShadowLibrary::GetCylinders(const std::stri
 
 	Collected = std::move(Result);
 	return Collected;
+}
+
+std::optional<lcMatrix44> lcShadowLibrary::FindPlacement(const lcPieceData* MovingPieceData, const lcMatrix44& ReferenceTransform, const lcVector3& GrabPoint, const lcPieceData* TargetPieceData, const lcMatrix44& TargetTransform, const lcVector3& HitPoint, const lcVector3& ViewDirection)
+{
+	if (!MovingPieceData || !TargetPieceData || MovingPieceData->IsModel() || TargetPieceData->IsModel())
+		return std::nullopt;
+
+	return lcSnapShapes::FindPlacement(GetCylinders(MovingPieceData->mFileName), ReferenceTransform, GrabPoint, GetCylinders(TargetPieceData->mFileName), TargetTransform, HitPoint, ViewDirection);
 }

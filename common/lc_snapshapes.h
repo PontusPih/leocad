@@ -42,8 +42,15 @@ struct lcSnapCylinder
 class lcSnapShapes
 {
 public:
+	static bool IsRound(const lcSnapCylinder& Cylinder);
+	static bool AreCompatible(const lcSnapCylinder& a, const lcSnapCylinder& b);
 
+	// Snaps the moving shapes' point closest to GrabPoint (in the moving piece's LeoCAD coordinates)
+	// onto the target's point closest to HitPoint that faces the viewer, in LeoCAD world coordinates.
+	// ReferenceTransform is the moving piece's transform when the drag started.
+	static std::optional<lcMatrix44> FindPlacement(const std::vector<lcSnapCylinder>& MovingCylinders, const lcMatrix44& ReferenceTransform, const lcVector3& GrabPoint, const std::vector<lcSnapCylinder>& TargetCylinders, const lcMatrix44& TargetTransform, const lcVector3& HitPoint, const lcVector3& ViewDirection);
 
+	static bool IsRigid(const lcMatrix44& m);
 	static float GetDeterminant(const lcMatrix44& m);
 private:
 };

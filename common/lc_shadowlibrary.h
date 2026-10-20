@@ -14,6 +14,9 @@ public:
 	// PartName is a library file name such as "3001.dat" or "s/3001s01.dat".
 	static const std::vector<lcSnapCylinder>& GetCylinders(const std::string& PartName);
 
+	// The lcSnapShapes functions for pieces; submodels have no shapes.
+	static std::optional<lcMatrix44> FindPlacement(const lcPieceData* MovingPieceData, const lcMatrix44& ReferenceTransform, const lcVector3& GrabPoint, const lcPieceData* TargetPieceData, const lcMatrix44& TargetTransform, const lcVector3& HitPoint, const lcVector3& ViewDirection);
+
 private:
 	static std::string NormalizeName(const std::string& Name);
 	static const std::vector<QString>& GetShadowLines(const std::string& Name);
