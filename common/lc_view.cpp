@@ -1,5 +1,7 @@
 #include "lc_global.h"
 #include "lc_view.h"
+#include "lc_shadowlibrary.h"
+#include "lc_piececonnectivity.h"
 #include "lc_viewwidget.h"
 #include <stdlib.h>
 #include "lc_mainwindow.h"
@@ -601,6 +603,29 @@ std::pair<std::vector<lcInsertPieceInfo>, bool> lcView::GetMouseInsertPieceInfo(
 
 			if (!TrainTracks.empty())
 				return { TrainTracks, true };
+		}
+
+		if (lcShadowLibrary::IsLoaded())
+		{
+			const lcVector3 HitPoint = ObjectRayTest.Start + lcNormalize(ObjectRayTest.End - ObjectRayTest.Start) * ObjectRayTest.Distance;
+			lcMatrix44 MovingTransform = lcMatrix44Identity();
+			lcVector3 GrabPoint(0.0f, 0.0f, 0.0f);
+
+			if (MovingPiece && MovingPiece == mMouseDownPiece)
+			{
+				MovingTransform = mMouseDownTransform;
+				GrabPoint = mMouseDownGrabPoint;
+			}
+			else if (MovingPiece)
+				MovingTransform = MovingPiece->mModelWorld;
+
+			// Snap onto the part that was hit: inside a submodel that is one of its parts, at its world position.
+			const lcPieceData* TargetPieceData = ObjectRayTest.PieceRayTest.PieceData ? ObjectRayTest.PieceRayTest.PieceData : MousePiece->mPieceData.Get();
+			const lcMatrix44 TargetTransform = ObjectRayTest.PieceRayTest.PieceData ? ObjectRayTest.PieceRayTest.Transform : MousePiece->mModelWorld;
+			const std::optional<lcMatrix44> Placement = lcPieceConnectivity::FindPlacement(PieceData.Get(), MovingTransform, GrabPoint, TargetPieceData, TargetTransform, HitPoint, lcNormalize(ObjectRayTest.End - ObjectRayTest.Start));
+
+			if (Placement)
+				return { { lcInsertPieceInfo{ PieceData.Get(), *Placement, gMainWindow->mColorIndex } }, true };
 		}
 
 		lcVector3 Position = ObjectRayTest.PieceRayTest.Plane;
@@ -2411,6 +2436,10 @@ void lcView::UpdateTrackTool()
 					mMouseDownTransform = Piece->mModelWorld;
 					mMouseDownPiece = Piece;
 					NewTrackTool = lcTrackTool::MoveXYZ;
+
+					const lcObjectRayTest GrabRayTest = RayTest(true, false);
+					const lcVector3 GrabPoint = GrabRayTest.Start + lcNormalize(GrabRayTest.End - GrabRayTest.Start) * GrabRayTest.Distance;
+					mMouseDownGrabPoint = GrabRayTest.ObjectSection.Object == Piece ? lcMul31(GrabPoint, lcMatrix44AffineInverse(Piece->mModelWorld)) : lcVector3(0.0f, 0.0f, 0.0f);
 				}
 			}
 		}

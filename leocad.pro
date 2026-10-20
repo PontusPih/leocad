@@ -220,6 +220,7 @@ SOURCES += \
 	common/lc_partpalettedialog.cpp \
 	common/lc_partselectionpopup.cpp \
 	common/lc_partselectionwidget.cpp \
+	common/lc_piececonnectivity.cpp \
 	common/lc_piecedata.cpp \
 	common/lc_piecemanager.cpp \
 	common/lc_previewwidget.cpp \
@@ -308,6 +309,7 @@ HEADERS += \
 	common/lc_partpalettedialog.h \
 	common/lc_partselectionpopup.h \
 	common/lc_partselectionwidget.h \
+	common/lc_piececonnectivity.h \
 	common/lc_piecedata.h \
 	common/lc_piecemanager.h \
 	common/lc_previewwidget.h \
