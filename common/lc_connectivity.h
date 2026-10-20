@@ -81,6 +81,7 @@ struct lcConnectionCylinder
 class lcConnectivity
 {
 public:
+	static bool IsRound(const lcConnectionCylinder& Cylinder);
 	static bool AreCompatible(const lcConnectionCylinder& a, const lcConnectionCylinder& b);
 	// Whether any of the shapes at Transform is engaged with any of the other shapes at OtherTransform.
 	static bool AreConnected(const std::vector<lcConnectionCylinder>& Cylinders, const lcMatrix44& Transform, const std::vector<lcConnectionCylinder>& OtherCylinders, const lcMatrix44& OtherTransform);
@@ -92,6 +93,13 @@ public:
 	// Where a male shape can sit along a female one running the same way, as ranges of the male's
 	// offset from the female's position; none if it can't.
 	static std::vector<std::pair<float, float>> GetInsertRanges(const lcConnectionCylinder& Male, const lcConnectionCylinder& Female);
+
+	// Snaps the moving shapes' point closest to GrabPoint (in the moving piece's LeoCAD coordinates)
+	// onto the target's point closest to HitPoint that faces the viewer, in LeoCAD world coordinates.
+	// ReferenceTransform is the moving piece's transform when the drag started.
+	static std::optional<lcMatrix44> FindPlacement(const std::vector<lcConnectionCylinder>& MovingCylinders, const lcMatrix44& ReferenceTransform, const lcVector3& GrabPoint, const std::vector<lcConnectionCylinder>& TargetCylinders, const lcMatrix44& TargetTransform, const lcVector3& HitPoint, const lcVector3& ViewDirection);
+
+	static bool IsRigid(const lcMatrix44& m);
 	static float GetDeterminant(const lcMatrix44& m);
 
 private:
