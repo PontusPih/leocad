@@ -5882,7 +5882,8 @@ void lcModel::UpdateFreeMoveTool(lcPiece* MousePiece, const lcMatrix44& StartTra
 	lcMatrix33 NewRotation = IsConnection ? lcMatrix33(NewTransform) : lcMatrix33(StartTransform);
 	lcMatrix33 CurrentRotation = lcMatrix33(MousePiece->mModelWorld);
 
-	if (!lcMatrix33Similar(CurrentRotation, NewRotation))
+	// Connections need the exact transform, without rounding the move to the snap grid.
+	if (IsConnection || !lcMatrix33Similar(CurrentRotation, NewRotation))
 	{
 		const lcVector3 Distance = NewTransform.GetTranslation() - MousePiece->mModelWorld.GetTranslation();
 
