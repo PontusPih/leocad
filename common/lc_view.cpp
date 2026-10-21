@@ -120,6 +120,18 @@ void lcView::RotateDraggedPiece(const lcPiece* Piece, const lcMatrix33& Rotation
 			lcMatrix33 NewRotation = lcMul(lcMatrix33(View->mMouseDownTransform), Rotation);
 			NewRotation.Orthonormalize();
 			View->mMouseDownTransform = lcMatrix44(NewRotation, View->mMouseDownTransform.GetTranslation());
+
+			// Until the next mouse move snaps again, show the connections of the turned piece.
+			if (View->mSnapMatch)
+			{
+				lcSnapMatch& Match = *View->mSnapMatch;
+				const lcMatrix44 Turn = lcMul(lcMatrix44AffineInverse(Match.Transform), Piece->mModelWorld);
+
+				Match.MovingPosition = lcMul31(Match.MovingPosition, Turn);
+				Match.Axis = lcNormalize(lcMul30(Match.Axis, Turn));
+				Match.Transform = Piece->mModelWorld;
+				Match.Connections = lcPieceConnectivity::FindConnections(Piece->mPieceData.Get(), Match.Transform, { { Match.TargetPieceData, Match.TargetTransform } });
+			}
 		}
 	}
 }
@@ -606,6 +618,8 @@ std::pair<std::vector<lcInsertPieceInfo>, bool> lcView::GetMouseInsertPieceInfo(
 {
 	lcModel* ActiveModel = GetActiveModel();
 
+	mSnapMatch.reset();
+
 	lcGetPiecesLibrary()->EnsurePieceDataAssetsReady(PieceData);
 
 	if (MovingPiece && PieceData->GetSynthInfo())
@@ -674,10 +688,10 @@ std::pair<std::vector<lcInsertPieceInfo>, bool> lcView::GetMouseInsertPieceInfo(
 			// Snap onto the part that was hit: inside a submodel that is one of its parts, at its world position.
 			const lcPieceData* TargetPieceData = ObjectRayTest.PieceRayTest.PieceData ? ObjectRayTest.PieceRayTest.PieceData : MousePiece->mPieceData.Get();
 			const lcMatrix44 TargetTransform = ObjectRayTest.PieceRayTest.PieceData ? ObjectRayTest.PieceRayTest.Transform : MousePiece->mModelWorld;
-			const std::optional<lcMatrix44> Placement = lcPieceConnectivity::FindPlacement(PieceData.Get(), MovingTransform, GrabPoint, TargetPieceData, TargetTransform, HitPoint, lcNormalize(ObjectRayTest.End - ObjectRayTest.Start));
+			mSnapMatch = lcPieceConnectivity::FindMatch(PieceData.Get(), MovingTransform, GrabPoint, TargetPieceData, TargetTransform, HitPoint, lcNormalize(ObjectRayTest.End - ObjectRayTest.Start));
 
-			if (Placement)
-				return { { lcInsertPieceInfo{ PieceData.Get(), *Placement, gMainWindow->mColorIndex } }, true };
+			if (mSnapMatch)
+				return { { lcInsertPieceInfo{ PieceData.Get(), mSnapMatch->Transform, gMainWindow->mColorIndex } }, true };
 		}
 
 		lcVector3 Position = ObjectRayTest.PieceRayTest.Plane;
@@ -1280,6 +1294,9 @@ void lcView::OnDraw()
 			DrawRotateViewOverlay();
 	}
 
+	if (DrawInterface)
+		DrawSnapOverlay();
+
 	if (DrawOverlays)
 	{
 		mViewSphere->Draw();
@@ -1667,6 +1684,60 @@ void lcView::DrawSelectZoomRegionOverlay()
 		mContext->EnableColorBlend(false);
 	}
 
+	mContext->EnableDepthTest(true);
+}
+
+// Circles the connections a dragged or inserted piece would make with the piece it snaps onto,
+// and marks the point it was snapped by with a smaller ring in the selection colour.
+void lcView::DrawSnapOverlay()
+{
+	const bool Dragging = mTrackTool == lcTrackTool::MoveXYZ && mTrackButton != lcTrackButton::None;
+
+	if (!mSnapMatch || (!Dragging && mTrackTool != lcTrackTool::Insert))
+		return;
+
+	mContext->SetMaterial(lcMaterialType::UnlitColor);
+	mContext->SetWorldMatrix(GetActiveModel() != mModel ? mActiveSubmodelTransform : lcMatrix44Identity());
+	mContext->SetViewMatrix(mCamera->mWorldView);
+	mContext->SetProjectionMatrix(GetProjectionMatrix());
+	mContext->SetLineWidth(2.0f);
+	mContext->EnableDepthTest(false);
+
+	const auto DrawRing = [this](const lcVector3& Center, const lcVector3& Axis, float Radius, const lcVector4& Color)
+	{
+		constexpr int Segments = 32;
+		const lcVector3 Side = lcNormalize(lcCross(Axis, fabsf(Axis[2]) < 0.9f ? lcVector3(0.0f, 0.0f, 1.0f) : lcVector3(1.0f, 0.0f, 0.0f)));
+		const lcVector3 Up = lcCross(Axis, Side);
+		float Verts[Segments * 2][3];
+
+		for (int Segment = 0; Segment < Segments * 2; Segment++)
+		{
+			const float Angle = ((Segment + 1) / 2) * LC_2PI / Segments;
+			const lcVector3 Point = Center + (Side * cosf(Angle) + Up * sinf(Angle)) * Radius;
+
+			Verts[Segment][0] = Point[0];
+			Verts[Segment][1] = Point[1];
+			Verts[Segment][2] = Point[2];
+		}
+
+		mContext->SetColor(Color);
+		mContext->SetVertexBufferPointer(Verts);
+		mContext->SetVertexFormatPosition(3);
+		mContext->DrawPrimitives(GL_LINES, 0, Segments * 2);
+	};
+
+	const lcPreferences& Preferences = lcGetPreferences();
+
+	const lcVector4 ConnectionColor = lcVector4FromColor(Preferences.mObjectFocusedColor);
+	const lcVector4 SnappedColor = lcVector4FromColor(Preferences.mObjectSelectedColor);
+
+	// Rings a little wider than the shapes, so they show around a stud.
+	for (const lcSnapConnection& Connection : mSnapMatch->Connections)
+		DrawRing(Connection.Position, Connection.Axis, Connection.Radius * 1.5f, ConnectionColor);
+
+	DrawRing(mSnapMatch->MovingPosition, mSnapMatch->Axis, mSnapMatch->Radius, SnappedColor);
+
+	mContext->SetLineWidth(1.0f);
 	mContext->EnableDepthTest(true);
 }
 
