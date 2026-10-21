@@ -283,6 +283,34 @@
             </item>
            </layout>
           </item>
+          <item row="5" column="0">
+           <widget class="QLabel" name="ShadowLibraryLabel">
+            <property name="text">
+             <string>S&amp;hadow Library:</string>
+            </property>
+            <property name="buddy">
+             <cstring>ShadowLibraryEdit</cstring>
+            </property>
+           </widget>
+          </item>
+          <item row="5" column="1">
+           <layout class="QHBoxLayout" name="ShadowLibraryLayout">
+            <item>
+             <widget class="QLineEdit" name="ShadowLibraryEdit">
+              <property name="toolTip">
+               <string>Folder of the LDCad shadow library, which has the connection points used to snap parts together. Leave empty to place parts without snapping.</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QToolButton" name="ShadowLibraryBrowseButton">
+              <property name="text">
+               <string>...</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
          </layout>
         </widget>
        </item>
@@ -2006,6 +2034,8 @@ Unsupported video cards use face tint and colored edges.</string>
   <tabstop>povrayExecutableBrowse</tabstop>
   <tabstop>lgeoPath</tabstop>
   <tabstop>lgeoPathBrowse</tabstop>
+  <tabstop>ShadowLibraryEdit</tabstop>
+  <tabstop>ShadowLibraryBrowseButton</tabstop>
   <tabstop>ColorTheme</tabstop>
   <tabstop>Language</tabstop>
   <tabstop>checkForUpdates</tabstop>
