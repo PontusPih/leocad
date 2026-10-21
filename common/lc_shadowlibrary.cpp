@@ -212,10 +212,25 @@ const std::vector<lcSnapCylinder>& lcShadowLibrary::GetCylinders(const std::stri
 
 std::optional<lcMatrix44> lcShadowLibrary::FindPlacement(const lcPieceData* MovingPieceData, const lcMatrix44& ReferenceTransform, const lcVector3& GrabPoint, const lcPieceData* TargetPieceData, const lcMatrix44& TargetTransform, const lcVector3& HitPoint, const lcVector3& ViewDirection)
 {
+	const std::optional<lcSnapMatch> Match = FindMatch(MovingPieceData, ReferenceTransform, GrabPoint, TargetPieceData, TargetTransform, HitPoint, ViewDirection);
+
+	if (!Match)
+		return std::nullopt;
+
+	return Match->Transform;
+}
+
+std::optional<lcSnapMatch> lcShadowLibrary::FindMatch(const lcPieceData* MovingPieceData, const lcMatrix44& ReferenceTransform, const lcVector3& GrabPoint, const lcPieceData* TargetPieceData, const lcMatrix44& TargetTransform, const lcVector3& HitPoint, const lcVector3& ViewDirection)
+{
 	if (!MovingPieceData || !TargetPieceData || MovingPieceData->IsModel() || TargetPieceData->IsModel())
 		return std::nullopt;
 
-	return lcSnapShapes::FindPlacement(GetCylinders(MovingPieceData->mFileName), ReferenceTransform, GrabPoint, GetCylinders(TargetPieceData->mFileName), TargetTransform, HitPoint, ViewDirection);
+	std::optional<lcSnapMatch> Match = lcSnapShapes::FindMatch(GetCylinders(MovingPieceData->mFileName), ReferenceTransform, GrabPoint, GetCylinders(TargetPieceData->mFileName), TargetTransform, HitPoint, ViewDirection);
+
+	if (Match)
+		Match->TargetPieceData = TargetPieceData;
+
+	return Match;
 }
 
 std::vector<std::pair<const std::vector<lcSnapCylinder>*, lcMatrix44>> lcShadowLibrary::GetPieceShapes(const std::vector<std::pair<const lcPieceData*, lcMatrix44>>& Pieces)

@@ -70,6 +70,21 @@ float lcSnapShapes::GetDistanceToShape(const lcSnapCylinder& Cylinder, const lcM
 	return lcLength(Position + Axis * Along - Point);
 }
 
+// The middle of where two shapes on the same axis overlap, both at their frames (LeoCAD
+// coordinates, shapes along +Z).
+lcVector3 lcSnapShapes::GetOverlapCenter(const lcSnapCylinder& Cylinder, const lcMatrix44& Frame, const lcSnapCylinder& Other, const lcMatrix44& OtherFrame)
+{
+	const lcVector3 Position = Frame.GetTranslation();
+	const lcVector3 Axis = lcNormalize(lcMul30(lcVector3(0.0f, 0.0f, 1.0f), Frame));
+	const auto [Start, End] = Cylinder.GetExtent();
+	const auto [OtherStart, OtherEnd] = Other.GetExtent();
+	const float OtherAlong = lcDot(OtherFrame.GetTranslation() - Position, Axis);
+	const float Low = std::max(Start, OtherAlong + OtherStart);
+	const float High = std::min(End, OtherAlong + OtherEnd);
+
+	return Position + Axis * ((Low + High) / 2.0f);
+}
+
 bool lcSnapShapes::IsRound(const lcSnapCylinder& Cylinder)
 {
 	return std::all_of(Cylinder.Sections.begin(), Cylinder.Sections.end(), [](const lcSnapSection& Section) { return Section.Shape != QLatin1String("A") && Section.Shape != QLatin1String("S"); });
@@ -92,7 +107,7 @@ bool lcSnapShapes::AreCompatible(const lcSnapCylinder& a, const lcSnapCylinder& 
 	return false;
 }
 
-std::optional<lcMatrix44> lcSnapShapes::FindPlacement(const std::vector<lcSnapCylinder>& MovingCylinders, const lcMatrix44& ReferenceTransform, const lcVector3& GrabPoint, const std::vector<lcSnapCylinder>& TargetCylinders, const lcMatrix44& TargetTransform, const lcVector3& HitPoint, const lcVector3& ViewDirection)
+std::optional<lcSnapMatch> lcSnapShapes::FindMatch(const std::vector<lcSnapCylinder>& MovingCylinders, const lcMatrix44& ReferenceTransform, const lcVector3& GrabPoint, const std::vector<lcSnapCylinder>& TargetCylinders, const lcMatrix44& TargetTransform, const lcVector3& HitPoint, const lcVector3& ViewDirection)
 {
 	if (MovingCylinders.empty() || TargetCylinders.empty())
 		return std::nullopt;
@@ -133,7 +148,7 @@ std::optional<lcMatrix44> lcSnapShapes::FindPlacement(const std::vector<lcSnapCy
 	// Rotations are compared to the piece's orientation when the drag started (ReferenceTransform),
 	// so they can't drift while dragging.
 	const lcMatrix33 ReferenceRotation(ReferenceTransform);
-	std::optional<lcMatrix44> Best;
+	std::optional<lcSnapMatch> Best;
 
 	// Small round shapes (bars, and the pins under 1x plates and bricks, which fit hollow studs)
 	// are only used when nothing bigger fits: a brick held over a stud is meant to go on with an
@@ -148,10 +163,7 @@ std::optional<lcMatrix44> lcSnapShapes::FindPlacement(const std::vector<lcSnapCy
 			if (Target.Distance > NearestDistance + 8.0f)
 				continue;
 
-			float MaxRadius = 0.0f;
-
-			for (const lcSnapSection& Section : Target.Cylinder->Sections)
-				MaxRadius = std::max(MaxRadius, Section.Radius);
+			const float MaxRadius = Target.Cylinder->GetRadius();
 
 			if ((MaxRadius < 5.0f) != (Pass == 1))
 				continue;
@@ -223,12 +235,15 @@ std::optional<lcMatrix44> lcSnapShapes::FindPlacement(const std::vector<lcSnapCy
 					{
 						BestTrace = Score < BestScore - 0.5f ? Trace : std::max(BestTrace, Trace);
 						BestScore = std::min(BestScore, Score);
-						Best = Placement;
+						Best = lcSnapMatch{ Placement, GetOverlapCenter(Moving, lcMul(MovingFrame, Placement), *Target.Cylinder, Target.Frame), TargetAxis, MaxRadius, nullptr, TargetTransform, {} };
 					}
 				}
 			}
 		}
 	}
+
+	if (Best)
+		Best->Connections = FindConnections(MovingCylinders, Best->Transform, { { &TargetCylinders, TargetTransform } });
 
 	return Best;
 }
@@ -242,7 +257,7 @@ std::vector<lcSnapConnection> lcSnapShapes::FindConnections(const std::vector<lc
 	{
 		const lcMatrix44 Frame = lcMul(lcMatrix44LDrawToLeoCAD(Cylinder.Transform), Transform);
 		const lcVector3 Axis = lcNormalize(lcMul30(ShapeAxis, Frame));
-		bool Connected = false;
+		std::optional<lcVector3> Center;
 
 		for (const auto& [OtherCylinders, OtherTransform] : Others)
 		{
@@ -269,17 +284,17 @@ std::vector<lcSnapConnection> lcSnapShapes::FindConnections(const std::vector<lc
 
 				if (InsertRange && MaleOffset > InsertRange->first - 0.5f && MaleOffset < InsertRange->second + 0.5f)
 				{
-					Connected = true;
+					Center = GetOverlapCenter(Cylinder, Frame, OtherCylinder, OtherFrame);
 					break;
 				}
 			}
 
-			if (Connected)
+			if (Center)
 				break;
 		}
 
-		if (Connected)
-			Connections.push_back({ Frame.GetTranslation(), Axis });
+		if (Center)
+			Connections.push_back({ *Center, Axis, Cylinder.GetRadius() });
 	}
 
 	return Connections;

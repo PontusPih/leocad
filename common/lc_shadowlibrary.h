@@ -15,6 +15,8 @@ public:
 	static const std::vector<lcSnapCylinder>& GetCylinders(const std::string& PartName);
 
 	// The lcSnapShapes functions for pieces; submodels have no shapes.
+	static std::optional<lcSnapMatch> FindMatch(const lcPieceData* MovingPieceData, const lcMatrix44& ReferenceTransform, const lcVector3& GrabPoint, const lcPieceData* TargetPieceData, const lcMatrix44& TargetTransform, const lcVector3& HitPoint, const lcVector3& ViewDirection);
+	// The placement of FindMatch() alone.
 	static std::optional<lcMatrix44> FindPlacement(const lcPieceData* MovingPieceData, const lcMatrix44& ReferenceTransform, const lcVector3& GrabPoint, const lcPieceData* TargetPieceData, const lcMatrix44& TargetTransform, const lcVector3& HitPoint, const lcVector3& ViewDirection);
 	static std::vector<lcSnapConnection> FindConnections(const lcPieceData* PieceData, const lcMatrix44& Transform, const std::vector<std::pair<const lcPieceData*, lcMatrix44>>& Others);
 	// Turns around the piece's bounding box centre when there is no pointer.
