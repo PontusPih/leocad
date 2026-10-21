@@ -348,6 +348,8 @@ protected:
 
 	void DrawSelectZoomRegionOverlay();
 	void DrawSnapOverlay();
+	bool IsPickingGrabPoint() const;
+	void UpdatePickedGrabPoint();
 	void DrawRotateViewOverlay();
 	void DrawGrid();
 
@@ -402,6 +404,7 @@ protected:
 	std::optional<lcVector4> mTrainTrackDragPlane;
 	lcVector3 mMouseDownGrabPoint = lcVector3(0.0f, 0.0f, 0.0f); // Where the dragged piece was grabbed, in its own coordinates.
 	mutable std::optional<lcSnapMatch> mSnapMatch; // The connection of the last snapped placement, drawn while dragging.
+	std::optional<lcVector3> mPickedGrabPoint; // The dragged piece's connection point nearest the pointer, in its own coordinates.
 	int mPanX = 0;
 	int mPanY = 0;
 
