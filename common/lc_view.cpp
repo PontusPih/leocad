@@ -200,7 +200,55 @@ void lcView::SetMousePosition(int MouseX, int MouseY)
 
 void lcView::SetMouseModifiers(Qt::KeyboardModifiers MouseModifiers)
 {
+	const bool WasPicking = IsPickingGrabPoint();
+
 	mMouseModifiers = MouseModifiers;
+
+	const bool Picking = IsPickingGrabPoint();
+
+	if (Picking == WasPicking)
+		return;
+
+	// Releasing the modifier continues the drag from the connection point that was picked.
+	if (!Picking && mPickedGrabPoint)
+		mMouseDownGrabPoint = *mPickedGrabPoint;
+
+	mPickedGrabPoint.reset();
+
+	if (Picking)
+		UpdatePickedGrabPoint();
+
+	Redraw();
+}
+
+// Holding Ctrl while dragging a piece holds it still to pick the connection point to drag it by.
+bool lcView::IsPickingGrabPoint() const
+{
+	return mTrackTool == lcTrackTool::MoveXYZ && mTrackButton != lcTrackButton::None && mMouseDownPiece && (mMouseModifiers & Qt::ControlModifier) && lcShadowLibrary::IsLoaded();
+}
+
+void lcView::UpdatePickedGrabPoint()
+{
+	const std::array<lcVector3, 2> PointerRay = GetPointerRay();
+	const lcMatrix44& Transform = mMouseDownPiece->mModelWorld;
+	const std::string PartName = mMouseDownPiece->mPieceData->mFileName;
+	float NearestDistance = FLT_MAX;
+
+	mPickedGrabPoint.reset();
+
+	for (const lcConnectionCylinder& Cylinder : lcShadowLibrary::GetCylinders(PartName.c_str()))
+	{
+		const auto [Start, End] = Cylinder.GetExtent();
+		const lcMatrix44 Frame = lcMatrix44LDrawToLeoCAD(Cylinder.Transform);
+		const lcVector3 Middle = Frame.GetTranslation() + lcMul30(lcVector3(0.0f, 0.0f, 1.0f), Frame) * ((Start + End) / 2.0f);
+		const float Distance = lcRayPointDistance(lcMul31(Middle, Transform), PointerRay[0], PointerRay[1]);
+
+		if (Distance < NearestDistance)
+		{
+			NearestDistance = Distance;
+			mPickedGrabPoint = Middle;
+		}
+	}
 }
 
 lcModel* lcView::GetActiveModel() const
@@ -1752,12 +1800,14 @@ void lcView::DrawSelectZoomRegionOverlay()
 }
 
 // Circles the connections a dragged or inserted piece would make with the piece it snaps onto,
-// and marks the point it was snapped by with a smaller ring in the selection colour.
+// and marks the point it was snapped by with a smaller ring in the selection colour. While
+// picking a grab point, circles all of the dragged piece's points instead.
 void lcView::DrawSnapOverlay()
 {
 	const bool Dragging = mTrackTool == lcTrackTool::MoveXYZ && mTrackButton != lcTrackButton::None;
+	const bool Picking = IsPickingGrabPoint();
 
-	if (!mSnapMatch || (!Dragging && mTrackTool != lcTrackTool::Insert))
+	if (!Picking && (!mSnapMatch || (!Dragging && mTrackTool != lcTrackTool::Insert)))
 		return;
 
 	mContext->SetMaterial(lcMaterialType::UnlitColor);
@@ -1794,6 +1844,29 @@ void lcView::DrawSnapOverlay()
 
 	const lcVector4 ConnectionColor = lcVector4FromColor(Preferences.mObjectFocusedColor);
 	const lcVector4 SnappedColor = lcVector4FromColor(Preferences.mObjectSelectedColor);
+
+	if (Picking)
+	{
+		const lcMatrix44& Transform = mMouseDownPiece->mModelWorld;
+		const std::string PartName = mMouseDownPiece->mPieceData->mFileName;
+
+		for (const lcConnectionCylinder& Cylinder : lcShadowLibrary::GetCylinders(PartName.c_str()))
+		{
+			const auto [Start, End] = Cylinder.GetExtent();
+			const lcMatrix44 Frame = lcMul(lcMatrix44LDrawToLeoCAD(Cylinder.Transform), Transform);
+			const lcVector3 Axis = lcNormalize(lcMul30(lcVector3(0.0f, 0.0f, 1.0f), Frame));
+			const lcVector3 Middle = Frame.GetTranslation() + Axis * ((Start + End) / 2.0f);
+
+			DrawRing(Middle, Axis, Cylinder.GetRadius() * 1.5f, ConnectionColor);
+
+			if (mPickedGrabPoint && lcLength(lcMul31(*mPickedGrabPoint, Transform) - Middle) < 0.01f)
+				DrawRing(Middle, Axis, Cylinder.GetRadius(), SnappedColor);
+		}
+
+		mContext->SetLineWidth(1.0f);
+		mContext->EnableDepthTest(true);
+		return;
+	}
 
 	// Rings a little wider than the shapes, so they show around a stud.
 	for (const lcSnapConnection& Connection : mSnapMatch->Connections)
@@ -3479,6 +3552,11 @@ void lcView::OnMouseMove()
 						ActiveModel->UpdateMoveTool(Distance, true, mTrackButton != lcTrackButton::Left);
 					}
 				}
+			}
+			else if (IsPickingGrabPoint())
+			{
+				UpdatePickedGrabPoint();
+				Redraw();
 			}
 			else if (mTrackTool == lcTrackTool::MoveXYZ && mMouseDownPiece)
 			{
