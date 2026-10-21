@@ -4,6 +4,7 @@
 #include "lc_background.h"
 #include "lc_context.h"
 #include "lc_math.h"
+#include "lc_connectivity.h"
 #include "lc_commands.h"
 #include "lc_result.h"
 
@@ -344,6 +345,7 @@ protected:
 	void DrawAxes() const;
 
 	void DrawSelectZoomRegionOverlay();
+	void DrawSnapOverlay();
 	void DrawRotateViewOverlay();
 	void DrawGrid();
 
@@ -396,6 +398,7 @@ protected:
 	lcMatrix44 mMouseDownTransform;
 	lcPiece* mMouseDownPiece = nullptr;
 	lcVector3 mMouseDownGrabPoint = lcVector3(0.0f, 0.0f, 0.0f); // Where the dragged piece was grabbed, in its own coordinates.
+	mutable std::optional<lcSnapMatch> mSnapMatch; // The connection of the last snapped placement, drawn while dragging.
 	int mPanX = 0;
 	int mPanY = 0;
 
