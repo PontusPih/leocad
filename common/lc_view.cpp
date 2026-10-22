@@ -736,7 +736,7 @@ std::pair<std::vector<lcInsertPieceInfo>, bool> lcView::GetMouseInsertPieceInfo(
 			// Snap onto the part that was hit: inside a submodel that is one of its parts, at its world position.
 			const lcPieceData* TargetPieceData = ObjectRayTest.PieceRayTest.PieceData ? ObjectRayTest.PieceRayTest.PieceData : MousePiece->mPieceData.Get();
 			const lcMatrix44 TargetTransform = ObjectRayTest.PieceRayTest.PieceData ? ObjectRayTest.PieceRayTest.Transform : MousePiece->mModelWorld;
-			mSnapMatch = lcPieceConnectivity::FindMatch(PieceData.Get(), MovingTransform, GrabPoint, TargetPieceData, TargetTransform, HitPoint, lcNormalize(ObjectRayTest.End - ObjectRayTest.Start));
+			mSnapMatch = lcPieceConnectivity::FindMatch(PieceData.Get(), MovingTransform, GrabPoint, TargetPieceData, TargetTransform, HitPoint, lcNormalize(ObjectRayTest.End - ObjectRayTest.Start), ActiveModel->GetVisibleParts(IgnoreSelected));
 
 			if (mSnapMatch)
 				return { { lcInsertPieceInfo{ PieceData.Get(), mSnapMatch->Transform, gMainWindow->mColorIndex } }, true };
