@@ -155,7 +155,7 @@ void lcTests::SnapPutsBrickOnEveryStud()
 			continue;
 
 		const lcVector3 Stud = lcMatrix44LDrawToLeoCAD(Cylinder.Transform).GetTranslation();
-		const std::optional<lcSnapMatch> Match = lcSnapShapes::FindMatch(Brick, BrickStart, GrabPoint, Plate, lcMatrix44Identity(), Stud + lcVector3(4.0f, -3.0f, 0.0f), ViewDirection);
+		const std::optional<lcSnapMatch> Match = lcSnapShapes::FindMatch(Brick, BrickStart, GrabPoint, Plate, lcMatrix44Identity(), Stud + lcVector3(4.0f, -3.0f, 0.0f), ViewDirection, lcBoundingBox(), {});
 
 		QVERIFY2(Match, qPrintable(QString("stud at %1 %2").arg(Stud[0]).arg(Stud[1])));
 		QVERIFY2(lcLength(lcMul31(LeftAntiStud, Match->Transform) - Stud) < 0.01f, qPrintable(QString("stud at %1 %2").arg(Stud[0]).arg(Stud[1])));
@@ -176,7 +176,7 @@ void lcTests::SnapPrefersAntiStudsOverPins()
 	const std::vector<lcSnapCylinder> Brick = MakeBrick1x2();
 	const lcMatrix44 StudFrame = lcMatrix44LDrawToLeoCAD(SideStud.front().Transform);
 	const lcVector3 Stud = StudFrame.GetTranslation();
-	const std::optional<lcSnapMatch> Match = lcSnapShapes::FindMatch(Brick, lcMatrix44Identity(), lcVector3(0.0f, 0.0f, 0.0f), SideStud, lcMatrix44Identity(), Stud, -GetShapeAxis(StudFrame));
+	const std::optional<lcSnapMatch> Match = lcSnapShapes::FindMatch(Brick, lcMatrix44Identity(), lcVector3(0.0f, 0.0f, 0.0f), SideStud, lcMatrix44Identity(), Stud, -GetShapeAxis(StudFrame), lcBoundingBox(), {});
 
 	QVERIFY(Match);
 	QCOMPARE(Match->Radius, 6.0f);
@@ -199,7 +199,7 @@ void lcTests::SnapFindsAllConnections()
 	// Snapped onto the middle of a plate, a 1x2 brick connects by both its anti studs.
 	const std::vector<lcSnapCylinder> Plate = MakePlate(6, 8);
 	const std::vector<lcSnapCylinder> Brick = MakeBrick1x2();
-	const std::optional<lcSnapMatch> Match = lcSnapShapes::FindMatch(Brick, lcMatrix44Translation(lcVector3(0.0f, 0.0f, 100.0f)), lcVector3LDrawToLeoCAD(lcVector3(-10.0f, 0.0f, 0.0f)), Plate, lcMatrix44Identity(), lcVector3(-10.0f, 10.0f, 0.0f), lcNormalize(lcVector3(0.3f, 0.5f, -0.8f)));
+	const std::optional<lcSnapMatch> Match = lcSnapShapes::FindMatch(Brick, lcMatrix44Translation(lcVector3(0.0f, 0.0f, 100.0f)), lcVector3LDrawToLeoCAD(lcVector3(-10.0f, 0.0f, 0.0f)), Plate, lcMatrix44Identity(), lcVector3(-10.0f, 10.0f, 0.0f), lcNormalize(lcVector3(0.3f, 0.5f, -0.8f)), lcBoundingBox(), {});
 
 	QVERIFY(Match);
 
@@ -236,7 +236,7 @@ void lcTests::SnapPutsBarsIntoHoles()
 		for (float Held : { 10.0f, 30.0f, 50.0f })
 		{
 			const lcVector3 GrabPoint = lcVector3LDrawToLeoCAD(lcVector3(0.0f, Held, 0.0f));
-			const std::optional<lcSnapMatch> Match = lcSnapShapes::FindMatch(Bar, lcMatrix44Identity(), GrabPoint, Hole, lcMatrix44Identity(), HitPoint, Axis);
+			const std::optional<lcSnapMatch> Match = lcSnapShapes::FindMatch(Bar, lcMatrix44Identity(), GrabPoint, Hole, lcMatrix44Identity(), HitPoint, Axis, lcBoundingBox(), {});
 			const QByteArray Case = QString("%1 hole, held at %2").arg(Closed ? "closed" : "open").arg(Held).toLatin1();
 
 			QVERIFY2(Match, Case);
@@ -273,7 +273,7 @@ void lcTests::SnapPutsClipOntoBarFromTheSide()
 	for (float Along : { -15.0f, 0.0f, 15.0f })
 	{
 		const lcVector3 HitPoint = BarFrame.GetTranslation() + Axis * Along;
-		const std::optional<lcSnapMatch> Match = lcSnapShapes::FindMatch(ClipPlate, lcMatrix44Translation(lcVector3(0.0f, 0.0f, 100.0f)), GrabPoint, Bar, lcMatrix44Identity(), HitPoint, ViewDirection);
+		const std::optional<lcSnapMatch> Match = lcSnapShapes::FindMatch(ClipPlate, lcMatrix44Translation(lcVector3(0.0f, 0.0f, 100.0f)), GrabPoint, Bar, lcMatrix44Identity(), HitPoint, ViewDirection, lcBoundingBox(), {});
 
 		QVERIFY(Match);
 		QVERIFY(lcLength(lcMul31(GrabPoint, Match->Transform) - HitPoint) < 0.01f);
@@ -326,4 +326,82 @@ void lcTests::SnapTurnsAroundConnectionAtPointer()
 		QVERIFY(Turn);
 		QVERIFY(lcLength(lcVector3(Turn->first[0], Turn->first[1], 0.0f) - lcVector3(Pointer[0], Pointer[1], 0.0f)) < 0.01f);
 	}
+}
+
+static std::vector<lcSnapCylinder> MakeBrick1x1()
+{
+	return MakePart({
+		"0 !LDCAD SNAP_CYL [gender=M] [caps=one] [secs=R 6 4]",
+		"0 !LDCAD SNAP_CYL [gender=F] [caps=one] [secs=S 6 20] [pos=0 24 0]",
+	});
+}
+
+// Bounding boxes of the made-up parts, in LeoCAD coordinates: studs up along +Z.
+static const lcBoundingBox Brick1x2Box = { lcVector3(-20.0f, -10.0f, -24.0f), lcVector3(20.0f, 10.0f, 4.0f) };
+static const lcBoundingBox Brick1x1Box = { lcVector3(-10.0f, -10.0f, -24.0f), lcVector3(10.0f, 10.0f, 4.0f) };
+
+void lcTests::SnapBodyBoxLeavesOutStuds()
+{
+	const lcBoundingBox PlateBody = lcSnapShapes::GetBodyBox({ lcVector3(-20.0f, -10.0f, -8.0f), lcVector3(20.0f, 10.0f, 4.0f) }, MakePlate(1, 2));
+
+	QCOMPARE(PlateBody.Max[2], 0.0f);
+	QCOMPARE(PlateBody.Min[2], -8.0f);
+
+	// The pin inside a 1x2 brick ends on its bottom face, but doesn't cut it.
+	const lcBoundingBox BrickBody = lcSnapShapes::GetBodyBox(Brick1x2Box, MakeBrick1x2());
+
+	QCOMPARE(BrickBody.Max[2], 0.0f);
+	QCOMPARE(BrickBody.Min[2], -24.0f);
+	QCOMPARE(BrickBody.Min[0], -20.0f);
+	QCOMPARE(BrickBody.Max[0], 20.0f);
+}
+
+void lcTests::SnapBoxesOverlap()
+{
+	const lcBoundingBox Body = lcSnapShapes::GetBodyBox(Brick1x2Box, MakeBrick1x2());
+	const lcMatrix44 Here = lcMatrix44Identity();
+
+	QVERIFY(!lcSnapShapes::DoBoxesOverlap(Body, Here, Body, lcMatrix44Translation(lcVector3(40.0f, 0.0f, 0.0f)), 0.5f));
+	QVERIFY(!lcSnapShapes::DoBoxesOverlap(Body, Here, Body, lcMatrix44Translation(lcVector3(0.0f, 20.0f, 0.0f)), 0.5f));
+	QVERIFY(!lcSnapShapes::DoBoxesOverlap(Body, Here, Body, lcMatrix44Translation(lcVector3(0.0f, 0.0f, 24.0f)), 0.5f));
+	QVERIFY(!lcSnapShapes::DoBoxesOverlap(Body, Here, Body, lcMatrix44Translation(lcVector3(0.0f, 0.0f, 60.0f)), 0.5f));
+	QVERIFY(lcSnapShapes::DoBoxesOverlap(Body, Here, Body, lcMatrix44Translation(lcVector3(30.0f, 0.0f, 0.0f)), 0.5f));
+
+	lcMatrix44 Crossing = lcMatrix44RotationZ(LC_PI / 4.0f);
+	Crossing.SetTranslation(lcVector3(0.0f, 0.0f, 10.0f));
+
+	QVERIFY(lcSnapShapes::DoBoxesOverlap(Body, Here, Body, Crossing, 0.5f));
+}
+
+void lcTests::SnapAvoidsRunningIntoOtherPieces()
+{
+	// A 1x2 brick held above its left end and dragged onto a stud would lie along the plate,
+	// over the next stud. With a 1x1 brick standing on that stud, it turns a quarter instead,
+	// still on the stud under the cursor.
+	const std::vector<lcSnapCylinder> Plate = MakePlate(6, 8);
+	const std::vector<lcSnapCylinder> Brick = MakeBrick1x2();
+	const lcBoundingBox BrickBody = lcSnapShapes::GetBodyBox(Brick1x2Box, Brick);
+	const lcBoundingBox SmallBody = lcSnapShapes::GetBodyBox(Brick1x1Box, MakeBrick1x1());
+	const lcVector3 ViewDirection = lcNormalize(lcVector3(0.3f, 0.5f, -0.8f));
+	const lcVector3 GrabPoint = lcVector3LDrawToLeoCAD(lcVector3(-10.0f, 0.0f, 0.0f));
+	const lcVector3 LeftAntiStud = lcVector3LDrawToLeoCAD(lcVector3(-10.0f, 24.0f, 0.0f));
+	const lcVector3 Stud(-10.0f, 10.0f, 0.0f);
+	const lcMatrix44 BrickStart = lcMatrix44Translation(lcVector3(0.0f, 0.0f, 100.0f));
+	const std::vector<std::pair<lcBoundingBox, lcMatrix44>> NextStudTaken = { { SmallBody, lcMatrix44Translation(lcVector3(10.0f, 10.0f, 24.0f)) } };
+
+	const std::optional<lcSnapMatch> Free = lcSnapShapes::FindMatch(Brick, BrickStart, GrabPoint, Plate, lcMatrix44Identity(), Stud + lcVector3(4.0f, -3.0f, 0.0f), ViewDirection, BrickBody, {});
+
+	QVERIFY(Free);
+	QVERIFY(lcSnapShapes::DoBoxesOverlap(BrickBody, Free->Transform, NextStudTaken.front().first, NextStudTaken.front().second, 0.5f));
+
+	const std::optional<lcSnapMatch> Turned = lcSnapShapes::FindMatch(Brick, BrickStart, GrabPoint, Plate, lcMatrix44Identity(), Stud + lcVector3(4.0f, -3.0f, 0.0f), ViewDirection, BrickBody, NextStudTaken);
+
+	QVERIFY(Turned);
+	QVERIFY(!lcSnapShapes::DoBoxesOverlap(BrickBody, Turned->Transform, NextStudTaken.front().first, NextStudTaken.front().second, 0.5f));
+	QVERIFY(lcLength(lcMul31(LeftAntiStud, Turned->Transform) - Stud) < 0.01f);
+
+	// When every placement runs into something, the piece still snaps.
+	const std::vector<std::pair<lcBoundingBox, lcMatrix44>> Everywhere = { { lcBoundingBox{ lcVector3(-100.0f, -100.0f, 0.0f), lcVector3(100.0f, 100.0f, 50.0f) }, lcMatrix44Identity() } };
+
+	QVERIFY(lcSnapShapes::FindMatch(Brick, BrickStart, GrabPoint, Plate, lcMatrix44Identity(), Stud + lcVector3(4.0f, -3.0f, 0.0f), ViewDirection, BrickBody, Everywhere));
 }

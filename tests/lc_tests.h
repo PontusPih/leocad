@@ -22,4 +22,7 @@ private slots:
 	void SnapPutsClipOntoBarFromTheSide();
 	void SnapTurnsAroundConnection();
 	void SnapTurnsAroundConnectionAtPointer();
+	void SnapBodyBoxLeavesOutStuds();
+	void SnapBoxesOverlap();
+	void SnapAvoidsRunningIntoOtherPieces();
 };
