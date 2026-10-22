@@ -14,6 +14,9 @@ public:
 	// PartName is a library file name such as "3001.dat" or "s/3001s01.dat".
 	static const std::vector<lcConnectionCylinder>& GetCylinders(const char* PartName);
 
+	static QString DumpCylinders(const std::string& PartName);
+	static QString SelfTest(const lcModel* Model);
+
 private:
 	static std::string NormalizeName(const std::string& Name);
 	static const std::vector<lcShadowLine>& GetShadowLines(const std::string& Name);

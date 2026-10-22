@@ -6775,6 +6775,18 @@ Anisotropic: %5
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location filename="../common/lc_application.cpp" line="838"/>
+        <source>  --dump-snaps &lt;part,...&gt;: Print the snap information of the given parts and exit.
+</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../common/lc_application.cpp" line="839"/>
+        <source>  --snap-selftest: Check that snapping reproduces every connection in the model and exit.
+</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../common/lc_application.cpp" line="822"/>
         <source>  -v, --version: Output version information and exit.
 </source>
