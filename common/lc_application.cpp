@@ -420,7 +420,7 @@ lcStartupMode lcApplication::Initialize(const QList<QPair<QString, bool>>& Libra
 	if (Options.mExit)
 		return lcStartupMode::Success;
 
-	const bool SaveAndExit = Options.HasExportRequest();
+	const bool SaveAndExit = Options.HasExportRequest() || Options.mDumpSnaps || Options.mSnapSelfTest;
 
 #ifdef Q_OS_IOS
 	if (Options.mSaveImage)
@@ -496,6 +496,15 @@ lcStartupMode lcApplication::Initialize(const QList<QPair<QString, bool>>& Libra
 	if (!ShadowLibraryPath.isEmpty() && !lcShadowLibrary::SetPath(ShadowLibraryPath))
 		StdErr << tr("Could not find a shadow library in '%1'.\n").arg(ShadowLibraryPath);
 
+	if (Options.mDumpSnaps)
+	{
+		for (const QString& Part : Options.mDumpSnapsParts.split(',', Qt::SkipEmptyParts))
+			StdOut << "== " << Part << '\n' << lcShadowLibrary::DumpCylinders(Part.toStdString()) << '\n';
+
+		StdOut.flush();
+		return lcStartupMode::Success;
+	}
+
 	if (!SaveAndExit)
 		gMainWindow->CreateWidgets();
 
@@ -531,6 +540,13 @@ lcStartupMode lcApplication::Initialize(const QList<QPair<QString, bool>>& Libra
 				return lcStartupMode::Error;
 			}
 		}
+	}
+
+	if (ProjectLoaded && Options.mSnapSelfTest)
+	{
+		StdOut << lcShadowLibrary::SelfTest(mProject->GetMainModel()) << '\n';
+		StdOut.flush();
+		return lcStartupMode::Success;
 	}
 
 	if (ProjectLoaded)

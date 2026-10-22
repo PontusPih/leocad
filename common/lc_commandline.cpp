@@ -157,6 +157,13 @@ void lcCommandLineOptions::ParseOption(const QString& Option, QStringList& Argum
 	}
 	else if (Option == QLatin1String("--shadow-library"))
 		ParseString(Option, Arguments, mShadowLibraryPath, true);
+	else if (Option == QLatin1String("--snap-selftest"))
+		mSnapSelfTest = true;
+	else if (Option == QLatin1String("--dump-snaps"))
+	{
+		mDumpSnaps = true;
+		ParseString(Option, Arguments, mDumpSnapsParts, true);
+	}
 	else if (Option == QLatin1String("-v") || Option == QLatin1String("--version"))
 	{
 		AppendVersion();
@@ -631,6 +638,8 @@ void lcCommandLineOptions::AppendHelp()
 	mStdOut += tr("  Colors use RRGGBB or RRGGBBAA (alpha last), with an optional # prefix, or transparent.\n");
 	mStdOut += tr("  -l, --libpath <path>: Set the Pieces Library location to path.\n");
 	mStdOut += tr("  --shadow-library <path>: Set the LDCad Shadow Library location to path.\n");
+	mStdOut += tr("  --dump-snaps <part,...>: Print the snap information of the given parts and exit.\n");
+	mStdOut += tr("  --snap-selftest: Check that snapping reproduces every connection in the model and exit.\n");
 	mStdOut += tr("  -i, --image [outfile.ext]: Save a picture in the format specified by ext and exit.\n");
 	mStdOut += tr("    Omitted image filename: use the input name and saved image extension. Explicit extensionless filename: PNG.\n");
 	mStdOut += tr("  --background <transparent|RRGGBB|RRGGBBAA>: Set the image background; alpha is last.\n");
