@@ -765,6 +765,15 @@ lcCommandLineOptions lcApplication::ParseCommandLineOptions()
 		{
 			ParseString(Options.ShadowLibraryPath, true);
 		}
+		else if (Option == QLatin1String("--snap-selftest"))
+		{
+			Options.SnapSelfTest = true;
+		}
+		else if (Option == QLatin1String("--dump-snaps"))
+		{
+			Options.DumpSnaps = true;
+			ParseString(Options.DumpSnapsParts, true);
+		}
 		else if (Option == QLatin1String("-html") || Option == QLatin1String("--export-html"))
 		{
 			Options.SaveHTML = true;
@@ -826,6 +835,8 @@ lcCommandLineOptions lcApplication::ParseCommandLineOptions()
 			Options.StdOut += tr("  -csv, --export-csv <outfile.csv>: Export the list of pieces used in CSV format.\n");
 			Options.StdOut += tr("  -html, --export-html <folder>: Create an HTML page for the model.\n");
 			Options.StdOut += tr("  --shadow-library <path>: Set the LDCad Shadow Library location to path.\n");
+			Options.StdOut += tr("  --dump-snaps <part,...>: Print the snap information of the given parts and exit.\n");
+			Options.StdOut += tr("  --snap-selftest: Check that snapping reproduces every connection in the model and exit.\n");
 			Options.StdOut += tr("  -v, --version: Output version information and exit.\n");
 			Options.StdOut += tr("  -?, --help: Display this help message and exit.\n");
 			Options.StdOut += QLatin1String("\n");
@@ -911,9 +922,9 @@ lcCommandLineOptions lcApplication::ParseCommandLineOptions()
 			Options.StdErr += tr("--camera-position is ignored when --camera-angles is set.\n");
 	}
 
-	const bool SaveAndExit = (Options.SaveImage || Options.SaveWavefront || Options.Save3DS || Options.SaveCOLLADA || Options.SaveCSV || Options.SaveHTML);
+	const bool SaveAndExit = (Options.SaveImage || Options.SaveWavefront || Options.Save3DS || Options.SaveCOLLADA || Options.SaveCSV || Options.SaveHTML || Options.DumpSnaps || Options.SnapSelfTest);
 
-	if (SaveAndExit && Options.ProjectName.isEmpty())
+	if (SaveAndExit && !Options.DumpSnaps && Options.ProjectName.isEmpty())
 	{
 		Options.StdErr += tr("No file name specified.\n");
 		Options.ParseOK = false;
@@ -946,7 +957,7 @@ lcStartupMode lcApplication::Initialize(const QList<QPair<QString, bool>>& Libra
 	if (Options.Exit)
 		return lcStartupMode::Success;
 
-	const bool SaveAndExit = (Options.SaveImage || Options.SaveWavefront || Options.Save3DS || Options.SaveCOLLADA || Options.SaveCSV || Options.SaveHTML);
+	const bool SaveAndExit = (Options.SaveImage || Options.SaveWavefront || Options.Save3DS || Options.SaveCOLLADA || Options.SaveCSV || Options.SaveHTML || Options.DumpSnaps || Options.SnapSelfTest);
 
 #ifdef Q_OS_IOS
 	if (Options.SaveImage)
@@ -1022,6 +1033,15 @@ lcStartupMode lcApplication::Initialize(const QList<QPair<QString, bool>>& Libra
 	if (!ShadowLibraryPath.isEmpty() && !lcShadowLibrary::SetPath(ShadowLibraryPath))
 		StdErr << tr("Could not find a shadow library in '%1'.\n").arg(ShadowLibraryPath);
 
+	if (Options.DumpSnaps)
+	{
+		for (const QString& Part : Options.DumpSnapsParts.split(',', Qt::SkipEmptyParts))
+			StdOut << "== " << Part << '\n' << lcShadowLibrary::DumpCylinders(Part.toStdString()) << '\n';
+
+		StdOut.flush();
+		return lcStartupMode::Success;
+	}
+
 	if (!SaveAndExit)
 		gMainWindow->CreateWidgets();
 
@@ -1051,6 +1071,13 @@ lcStartupMode lcApplication::Initialize(const QList<QPair<QString, bool>>& Libra
 				delete LoadedProject;
 			}
 		}
+	}
+
+	if (ProjectLoaded && Options.SnapSelfTest)
+	{
+		StdOut << lcShadowLibrary::SelfTest(mProject->GetMainModel()) << '\n';
+		StdOut.flush();
+		return lcStartupMode::Success;
 	}
 
 	if (ProjectLoaded)
