@@ -107,7 +107,7 @@ bool lcSnapShapes::AreCompatible(const lcSnapCylinder& a, const lcSnapCylinder& 
 	return false;
 }
 
-std::optional<lcSnapMatch> lcSnapShapes::FindMatch(const std::vector<lcSnapCylinder>& MovingCylinders, const lcMatrix44& ReferenceTransform, const lcVector3& GrabPoint, const std::vector<lcSnapCylinder>& TargetCylinders, const lcMatrix44& TargetTransform, const lcVector3& HitPoint, const lcVector3& ViewDirection, const lcBoundingBox& MovingBody, const std::vector<std::pair<lcBoundingBox, lcMatrix44>>& Obstacles)
+std::optional<lcSnapMatch> lcSnapShapes::FindMatch(const std::vector<lcSnapCylinder>& MovingCylinders, const lcMatrix44& ReferenceTransform, const lcVector3& GrabPoint, const std::vector<lcSnapCylinder>& TargetCylinders, const lcMatrix44& TargetTransform, const lcVector3& HitPoint, const lcVector3& ViewDirection, const lcBoundingBox& MovingBody, const std::vector<std::pair<lcSnapBody, lcMatrix44>>& Obstacles)
 {
 	if (MovingCylinders.empty() || TargetCylinders.empty())
 		return std::nullopt;
@@ -230,9 +230,9 @@ std::optional<lcSnapMatch> lcSnapShapes::FindMatch(const std::vector<lcSnapCylin
 					// Running into another piece counts for more than any distance, so it only wins
 					// when every placement does. A little overlap is allowed, as pieces that touch
 					// share their faces.
-					const bool Interferes = std::any_of(Obstacles.begin(), Obstacles.end(), [&MovingBody, &Placement](const std::pair<lcBoundingBox, lcMatrix44>& Obstacle)
+					const bool Interferes = std::any_of(Obstacles.begin(), Obstacles.end(), [&MovingBody, &Placement](const std::pair<lcSnapBody, lcMatrix44>& Obstacle)
 					{
-						return DoBoxesOverlap(MovingBody, Placement, Obstacle.first, Obstacle.second, 0.5f);
+						return DoesBodyBlock(MovingBody, Placement, Obstacle.first, Obstacle.second, 0.5f);
 					});
 					const float PlacementScore = Interferes ? Score + 1000.0f : Score;
 
@@ -350,9 +350,9 @@ std::optional<std::pair<lcVector3, lcMatrix33>> lcSnapShapes::GetConnectionTurn(
 	return std::make_pair(Pivot->Position, lcMatrix33FromAxisAngle(Pivot->Axis, Direction * LC_PI / 2.0f));
 }
 
-lcBoundingBox lcSnapShapes::GetBodyBox(const lcBoundingBox& BoundingBox, const std::vector<lcSnapCylinder>& Cylinders)
+lcSnapBody lcSnapShapes::GetBody(const lcBoundingBox& BoundingBox, const std::vector<lcSnapCylinder>& Cylinders)
 {
-	lcBoundingBox Body = BoundingBox;
+	lcSnapBody Body = { BoundingBox, {} };
 
 	// Studs stick out of the body and go into other pieces; cut a box face back to the stud bases
 	// when stud size shapes end on it. Smaller ones, like the pins under 1x plates, are inside.
@@ -370,9 +370,42 @@ lcBoundingBox lcSnapShapes::GetBodyBox(const lcBoundingBox& BoundingBox, const s
 		for (int Coordinate = 0; Coordinate < 3; Coordinate++)
 		{
 			if (Axis[Coordinate] > 0.99f && fabsf(Tip[Coordinate] - BoundingBox.Max[Coordinate]) < 0.5f)
-				Body.Max[Coordinate] = std::max(std::min(Body.Max[Coordinate], Base[Coordinate]), Body.Min[Coordinate]);
+				Body.Box.Max[Coordinate] = std::max(std::min(Body.Box.Max[Coordinate], Base[Coordinate]), Body.Box.Min[Coordinate]);
 			else if (Axis[Coordinate] < -0.99f && fabsf(Tip[Coordinate] - BoundingBox.Min[Coordinate]) < 0.5f)
-				Body.Min[Coordinate] = std::min(std::max(Body.Min[Coordinate], Base[Coordinate]), Body.Max[Coordinate]);
+				Body.Box.Min[Coordinate] = std::min(std::max(Body.Box.Min[Coordinate], Base[Coordinate]), Body.Box.Max[Coordinate]);
+		}
+	}
+
+	// Above a stud inside the box, one stud wide, up to the box's face.
+	for (const lcSnapCylinder& Cylinder : Cylinders)
+	{
+		if (Cylinder.Gender != lcSnapGender::Male || Cylinder.GetRadius() < 5.0f)
+			continue;
+
+		const lcMatrix44 Frame = lcMatrix44LDrawToLeoCAD(Cylinder.Transform);
+		const lcVector3 Axis = lcNormalize(lcMul30(lcVector3(0.0f, 0.0f, 1.0f), Frame));
+		const lcVector3 Base = Frame.GetTranslation() + Axis * Cylinder.GetExtent().first;
+
+		for (int Coordinate = 0; Coordinate < 3; Coordinate++)
+		{
+			if (fabsf(Axis[Coordinate]) < 0.99f)
+				continue;
+
+			lcBoundingBox Column = { Base - lcVector3(10.0f, 10.0f, 10.0f), Base + lcVector3(10.0f, 10.0f, 10.0f) };
+
+			if (Axis[Coordinate] > 0.0f)
+			{
+				Column.Min[Coordinate] = Base[Coordinate];
+				Column.Max[Coordinate] = Body.Box.Max[Coordinate];
+			}
+			else
+			{
+				Column.Min[Coordinate] = Body.Box.Min[Coordinate];
+				Column.Max[Coordinate] = Base[Coordinate];
+			}
+
+			if (Column.Max[Coordinate] - Column.Min[Coordinate] > 0.5f)
+				Body.Free.push_back(Column);
 		}
 	}
 
@@ -429,4 +462,81 @@ bool lcSnapShapes::DoBoxesOverlap(const lcBoundingBox& a, const lcMatrix44& Tran
 	}
 
 	return true;
+}
+
+bool lcSnapShapes::DoesBodyBlock(const lcBoundingBox& Box, const lcMatrix44& BoxTransform, const lcSnapBody& Body, const lcMatrix44& BodyTransform, float Tolerance)
+{
+	if (!DoBoxesOverlap(Box, BoxTransform, Body.Box, BodyTransform, Tolerance))
+		return false;
+
+	if (Body.Free.empty())
+		return true;
+
+	// The free space can only be checked exactly when the box lines up with the body's axes.
+	const lcMatrix44 ToBody = lcMul(BoxTransform, lcMatrix44AffineInverse(BodyTransform));
+
+	for (int Row = 0; Row < 3; Row++)
+	{
+		const lcVector3 Direction(ToBody.r[Row]);
+
+		if (std::max({ fabsf(Direction[0]), fabsf(Direction[1]), fabsf(Direction[2]) }) < 0.999f)
+			return true;
+	}
+
+	// Where the box is inside the body, in the body's coordinates.
+	lcVector3 Corners[8];
+	lcGetBoxCorners(Box, Corners);
+	lcBoundingBox Inside = { Body.Box.Min + lcVector3(Tolerance, Tolerance, Tolerance), Body.Box.Max - lcVector3(Tolerance, Tolerance, Tolerance) };
+	lcVector3 Min(FLT_MAX, FLT_MAX, FLT_MAX), Max(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+
+	for (const lcVector3& Corner : Corners)
+	{
+		const lcVector3 Point = lcMul31(Corner, ToBody);
+		Min = lcMin(Min, Point);
+		Max = lcMax(Max, Point);
+	}
+
+	for (int Coordinate = 0; Coordinate < 3; Coordinate++)
+	{
+		Inside.Min[Coordinate] = std::max(Inside.Min[Coordinate], Min[Coordinate] + Tolerance);
+		Inside.Max[Coordinate] = std::min(Inside.Max[Coordinate], Max[Coordinate] - Tolerance);
+
+		if (Inside.Min[Coordinate] >= Inside.Max[Coordinate])
+			return false;
+	}
+
+	// Split that region at the free boxes' faces; every cell must be inside one of them.
+	std::vector<float> Splits[3];
+
+	for (int Coordinate = 0; Coordinate < 3; Coordinate++)
+	{
+		Splits[Coordinate] = { Inside.Min[Coordinate], Inside.Max[Coordinate] };
+
+		for (const lcBoundingBox& Free : Body.Free)
+			for (float Face : { Free.Min[Coordinate], Free.Max[Coordinate] })
+				if (Face > Inside.Min[Coordinate] && Face < Inside.Max[Coordinate])
+					Splits[Coordinate].push_back(Face);
+
+		std::sort(Splits[Coordinate].begin(), Splits[Coordinate].end());
+	}
+
+	for (size_t x = 0; x + 1 < Splits[0].size(); x++)
+	{
+		for (size_t y = 0; y + 1 < Splits[1].size(); y++)
+		{
+			for (size_t z = 0; z + 1 < Splits[2].size(); z++)
+			{
+				const lcVector3 Center((Splits[0][x] + Splits[0][x + 1]) / 2.0f, (Splits[1][y] + Splits[1][y + 1]) / 2.0f, (Splits[2][z] + Splits[2][z + 1]) / 2.0f);
+				const bool InFree = std::any_of(Body.Free.begin(), Body.Free.end(), [&Center](const lcBoundingBox& Free)
+				{
+					return Center[0] >= Free.Min[0] && Center[0] <= Free.Max[0] && Center[1] >= Free.Min[1] && Center[1] <= Free.Max[1] && Center[2] >= Free.Min[2] && Center[2] <= Free.Max[2];
+				});
+
+				if (!InFree)
+					return true;
+			}
+		}
+	}
+
+	return false;
 }
