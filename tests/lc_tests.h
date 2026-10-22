@@ -25,4 +25,5 @@ private slots:
 	void SnapBodyBoxLeavesOutStuds();
 	void SnapBoxesOverlap();
 	void SnapAvoidsRunningIntoOtherPieces();
+	void SnapFitsInsideHollowPieces();
 };

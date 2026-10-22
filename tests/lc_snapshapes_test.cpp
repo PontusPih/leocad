@@ -342,13 +342,13 @@ static const lcBoundingBox Brick1x1Box = { lcVector3(-10.0f, -10.0f, -24.0f), lc
 
 void lcTests::SnapBodyBoxLeavesOutStuds()
 {
-	const lcBoundingBox PlateBody = lcSnapShapes::GetBodyBox({ lcVector3(-20.0f, -10.0f, -8.0f), lcVector3(20.0f, 10.0f, 4.0f) }, MakePlate(1, 2));
+	const lcBoundingBox PlateBody = lcSnapShapes::GetBody({ lcVector3(-20.0f, -10.0f, -8.0f), lcVector3(20.0f, 10.0f, 4.0f) }, MakePlate(1, 2)).Box;
 
 	QCOMPARE(PlateBody.Max[2], 0.0f);
 	QCOMPARE(PlateBody.Min[2], -8.0f);
 
 	// The pin inside a 1x2 brick ends on its bottom face, but doesn't cut it.
-	const lcBoundingBox BrickBody = lcSnapShapes::GetBodyBox(Brick1x2Box, MakeBrick1x2());
+	const lcBoundingBox BrickBody = lcSnapShapes::GetBody(Brick1x2Box, MakeBrick1x2()).Box;
 
 	QCOMPARE(BrickBody.Max[2], 0.0f);
 	QCOMPARE(BrickBody.Min[2], -24.0f);
@@ -358,7 +358,7 @@ void lcTests::SnapBodyBoxLeavesOutStuds()
 
 void lcTests::SnapBoxesOverlap()
 {
-	const lcBoundingBox Body = lcSnapShapes::GetBodyBox(Brick1x2Box, MakeBrick1x2());
+	const lcBoundingBox Body = lcSnapShapes::GetBody(Brick1x2Box, MakeBrick1x2()).Box;
 	const lcMatrix44 Here = lcMatrix44Identity();
 
 	QVERIFY(!lcSnapShapes::DoBoxesOverlap(Body, Here, Body, lcMatrix44Translation(lcVector3(40.0f, 0.0f, 0.0f)), 0.5f));
@@ -380,28 +380,67 @@ void lcTests::SnapAvoidsRunningIntoOtherPieces()
 	// still on the stud under the cursor.
 	const std::vector<lcSnapCylinder> Plate = MakePlate(6, 8);
 	const std::vector<lcSnapCylinder> Brick = MakeBrick1x2();
-	const lcBoundingBox BrickBody = lcSnapShapes::GetBodyBox(Brick1x2Box, Brick);
-	const lcBoundingBox SmallBody = lcSnapShapes::GetBodyBox(Brick1x1Box, MakeBrick1x1());
+	const lcBoundingBox BrickBody = lcSnapShapes::GetBody(Brick1x2Box, Brick).Box;
+	const lcSnapBody SmallBody = lcSnapShapes::GetBody(Brick1x1Box, MakeBrick1x1());
 	const lcVector3 ViewDirection = lcNormalize(lcVector3(0.3f, 0.5f, -0.8f));
 	const lcVector3 GrabPoint = lcVector3LDrawToLeoCAD(lcVector3(-10.0f, 0.0f, 0.0f));
 	const lcVector3 LeftAntiStud = lcVector3LDrawToLeoCAD(lcVector3(-10.0f, 24.0f, 0.0f));
 	const lcVector3 Stud(-10.0f, 10.0f, 0.0f);
 	const lcMatrix44 BrickStart = lcMatrix44Translation(lcVector3(0.0f, 0.0f, 100.0f));
-	const std::vector<std::pair<lcBoundingBox, lcMatrix44>> NextStudTaken = { { SmallBody, lcMatrix44Translation(lcVector3(10.0f, 10.0f, 24.0f)) } };
+	const std::vector<std::pair<lcSnapBody, lcMatrix44>> NextStudTaken = { { SmallBody, lcMatrix44Translation(lcVector3(10.0f, 10.0f, 24.0f)) } };
 
 	const std::optional<lcSnapMatch> Free = lcSnapShapes::FindMatch(Brick, BrickStart, GrabPoint, Plate, lcMatrix44Identity(), Stud + lcVector3(4.0f, -3.0f, 0.0f), ViewDirection, BrickBody, {});
 
 	QVERIFY(Free);
-	QVERIFY(lcSnapShapes::DoBoxesOverlap(BrickBody, Free->Transform, NextStudTaken.front().first, NextStudTaken.front().second, 0.5f));
+	QVERIFY(lcSnapShapes::DoesBodyBlock(BrickBody, Free->Transform, NextStudTaken.front().first, NextStudTaken.front().second, 0.5f));
 
 	const std::optional<lcSnapMatch> Turned = lcSnapShapes::FindMatch(Brick, BrickStart, GrabPoint, Plate, lcMatrix44Identity(), Stud + lcVector3(4.0f, -3.0f, 0.0f), ViewDirection, BrickBody, NextStudTaken);
 
 	QVERIFY(Turned);
-	QVERIFY(!lcSnapShapes::DoBoxesOverlap(BrickBody, Turned->Transform, NextStudTaken.front().first, NextStudTaken.front().second, 0.5f));
+	QVERIFY(!lcSnapShapes::DoesBodyBlock(BrickBody, Turned->Transform, NextStudTaken.front().first, NextStudTaken.front().second, 0.5f));
 	QVERIFY(lcLength(lcMul31(LeftAntiStud, Turned->Transform) - Stud) < 0.01f);
 
 	// When every placement runs into something, the piece still snaps.
-	const std::vector<std::pair<lcBoundingBox, lcMatrix44>> Everywhere = { { lcBoundingBox{ lcVector3(-100.0f, -100.0f, 0.0f), lcVector3(100.0f, 100.0f, 50.0f) }, lcMatrix44Identity() } };
+	const std::vector<std::pair<lcSnapBody, lcMatrix44>> Everywhere = { { lcSnapBody{ { lcVector3(-100.0f, -100.0f, 0.0f), lcVector3(100.0f, 100.0f, 50.0f) }, {} }, lcMatrix44Identity() } };
 
 	QVERIFY(lcSnapShapes::FindMatch(Brick, BrickStart, GrabPoint, Plate, lcMatrix44Identity(), Stud + lcVector3(4.0f, -3.0f, 0.0f), ViewDirection, BrickBody, Everywhere));
+}
+
+void lcTests::SnapFitsInsideHollowPieces()
+{
+	// A tray: a floor of 4 x 2 studs, with walls 40 high beyond the floor on two sides. The space
+	// above the floor studs is free, the walls are not.
+	const std::vector<lcSnapCylinder> Tray = MakePart({ "0 !LDCAD SNAP_CYL [gender=M] [caps=one] [secs=R 6 4] [grid=C 4 C 2 20 20]" });
+	const lcSnapBody TrayBody = lcSnapShapes::GetBody({ lcVector3(-40.0f, -30.0f, -8.0f), lcVector3(40.0f, 30.0f, 40.0f) }, Tray);
+	const std::vector<lcSnapCylinder> Brick = MakePart({
+		"0 !LDCAD SNAP_CYL [gender=M] [caps=one] [secs=R 6 4] [grid=C 4 1 20 0]",
+		"0 !LDCAD SNAP_CYL [gender=F] [caps=one] [secs=S 6 20] [pos=0 24 0] [grid=C 4 1 20 0]",
+	});
+	const lcBoundingBox BrickBody = lcSnapShapes::GetBody({ lcVector3(-40.0f, -10.0f, -24.0f), lcVector3(40.0f, 10.0f, 4.0f) }, Brick).Box;
+
+	QCOMPARE(TrayBody.Box.Max[2], 40.0f);
+	QCOMPARE(TrayBody.Free.size(), size_t(8));
+
+	const lcMatrix44 Lengthwise = lcMatrix44Translation(lcVector3(0.0f, -10.0f, 24.0f));
+	lcMatrix44 Crosswise = lcMatrix44RotationZ(LC_PI / 2.0f);
+	Crosswise.SetTranslation(lcVector3(-30.0f, 0.0f, 24.0f));
+
+	QVERIFY(!lcSnapShapes::DoesBodyBlock(BrickBody, Lengthwise, TrayBody, lcMatrix44Identity(), 0.5f));
+	QVERIFY(lcSnapShapes::DoesBodyBlock(BrickBody, Crosswise, TrayBody, lcMatrix44Identity(), 0.5f));
+	QVERIFY(lcSnapShapes::DoBoxesOverlap(BrickBody, Lengthwise, TrayBody.Box, lcMatrix44Identity(), 0.5f));
+
+	// Dragged in crosswise, held above its first anti stud, onto a floor stud, the brick turns to
+	// lie along the floor.
+	lcMatrix44 BrickStart = lcMatrix44RotationZ(LC_PI / 2.0f);
+	BrickStart.SetTranslation(lcVector3(0.0f, 0.0f, 100.0f));
+	const lcVector3 GrabPoint = lcVector3LDrawToLeoCAD(lcVector3(-30.0f, 0.0f, 0.0f));
+	const lcVector3 FirstAntiStud = lcVector3LDrawToLeoCAD(lcVector3(-30.0f, 24.0f, 0.0f));
+	const lcVector3 Stud(-30.0f, -10.0f, 0.0f);
+	const std::vector<std::pair<lcSnapBody, lcMatrix44>> Obstacles = { { TrayBody, lcMatrix44Identity() } };
+	const std::optional<lcSnapMatch> Match = lcSnapShapes::FindMatch(Brick, BrickStart, GrabPoint, Tray, lcMatrix44Identity(), Stud + lcVector3(2.0f, 1.0f, 0.0f), lcNormalize(lcVector3(0.3f, 0.5f, -0.8f)), BrickBody, Obstacles);
+
+	QVERIFY(Match);
+	QVERIFY(lcLength(lcMul31(FirstAntiStud, Match->Transform) - Stud) < 0.01f);
+	QVERIFY(fabsf(Match->Transform.r[0][0]) > 0.999f);
+	QVERIFY(!lcSnapShapes::DoesBodyBlock(BrickBody, Match->Transform, TrayBody, lcMatrix44Identity(), 0.5f));
 }
