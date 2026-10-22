@@ -2,7 +2,8 @@
 
 All tests run in one Qt Test executable, `leocad_tests`. The current tests cover
 object history and property-key comparisons, including 8,000 deterministic
-randomized undo/redo and merge transitions.
+randomized undo/redo and merge transitions, and the connection shapes used for
+snapping, on made-up parts.
 
 The executable creates a `QCoreApplication`; it does not open windows or require
 an OpenGL context, the parts library, or network access. It uses the same Qt

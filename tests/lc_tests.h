@@ -12,4 +12,14 @@ private slots:
 	void HistoryCancelsPendingEdit();
 	void HistoryReplaysAndMergesEdits();
 	void HistoryDropsRevertedMerge();
+	void SnapParsesLines();
+	void SnapScalesAndMirrorsSubFileShapes();
+	void SnapFitsShapesAlongTheirAxis();
+	void SnapPutsBrickOnEveryStud();
+	void SnapPrefersAntiStudsOverPins();
+	void SnapFindsAllConnections();
+	void SnapPutsBarsIntoHoles();
+	void SnapPutsClipOntoBarFromTheSide();
+	void SnapTurnsAroundConnection();
+	void SnapTurnsAroundConnectionAtPointer();
 };
