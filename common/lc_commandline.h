@@ -70,6 +70,9 @@ public:
 	QString mSaveHTMLName;
 	QList<QPair<QString, bool>> mLibraryPaths;
 	QString mShadowLibraryPath;
+	bool mDumpSnaps = false;
+	bool mSnapSelfTest = false;
+	QString mDumpSnapsParts;
 	QString mStdOut;
 	QString mStdErr;
 

@@ -6487,6 +6487,18 @@ Por favor, visita https://www.leocad.org para saber cómo descargar e instalar u
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location filename="../common/lc_commandline.cpp" line="641"/>
+        <source>  --dump-snaps &lt;part,...&gt;: Print the snap information of the given parts and exit.
+</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../common/lc_commandline.cpp" line="642"/>
+        <source>  --snap-selftest: Check that snapping reproduces every connection in the model and exit.
+</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../common/lc_application.cpp" line="788"/>
         <source>  -c, --camera &lt;camera name&gt;: Set the active camera.
 </source>

@@ -6449,6 +6449,18 @@ Anisotropic: %5
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location filename="../common/lc_commandline.cpp" line="641"/>
+        <source>  --dump-snaps &lt;part,...&gt;: Print the snap information of the given parts and exit.
+</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../common/lc_commandline.cpp" line="642"/>
+        <source>  --snap-selftest: Check that snapping reproduces every connection in the model and exit.
+</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../common/lc_application.cpp" line="782"/>
         <source>  -i, --image &lt;outfile.ext&gt;: Save a picture in the format specified by ext and exit.
 </source>
