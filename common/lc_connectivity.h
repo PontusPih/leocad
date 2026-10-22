@@ -97,6 +97,14 @@ struct lcSnapMatch
 	std::vector<lcSnapConnection> Connections; // All the placement makes with the target, this one included.
 };
 
+// A piece's solid part, in its coordinates: its bounding box without the studs on its outside,
+// less the space above studs inside the box, which has to be free for anything to go onto them.
+struct lcSnapBody
+{
+	lcBoundingBox Box;
+	std::vector<lcBoundingBox> Free;
+};
+
 // How connection shapes fit together, on lists of shapes and transforms, wherever the shapes come from.
 class lcConnectivity
 {
@@ -116,8 +124,9 @@ public:
 
 	// Snaps the moving shapes' point closest to GrabPoint (in the moving piece's LeoCAD coordinates)
 	// onto the target's point closest to HitPoint that faces the viewer, in LeoCAD world coordinates.
-	// ReferenceTransform is the moving piece's transform when the drag started.
-	static std::optional<lcSnapMatch> FindMatch(const std::vector<lcConnectionCylinder>& MovingCylinders, const lcMatrix44& ReferenceTransform, const lcVector3& GrabPoint, const std::vector<lcConnectionCylinder>& TargetCylinders, const lcMatrix44& TargetTransform, const lcVector3& HitPoint, const lcVector3& ViewDirection);
+	// ReferenceTransform is the moving piece's transform when the drag started. Placements where
+	// MovingBody runs into one of Obstacles (bodies at their transforms) are used only if all do.
+	static std::optional<lcSnapMatch> FindMatch(const std::vector<lcConnectionCylinder>& MovingCylinders, const lcMatrix44& ReferenceTransform, const lcVector3& GrabPoint, const std::vector<lcConnectionCylinder>& TargetCylinders, const lcMatrix44& TargetTransform, const lcVector3& HitPoint, const lcVector3& ViewDirection, const lcBoundingBox& MovingBody, const std::vector<std::pair<lcSnapBody, lcMatrix44>>& Obstacles);
 	// Connections by which shapes at Transform are attached to any of Others.
 	static std::vector<lcSnapConnection> FindConnections(const std::vector<lcConnectionCylinder>& Cylinders, const lcMatrix44& Transform, const std::vector<std::pair<const std::vector<lcConnectionCylinder>*, lcMatrix44>>& Others);
 	// A quarter turn (Direction 1 or -1) around a connection that attaches shapes at Transform to
@@ -128,6 +137,12 @@ public:
 
 	static lcVector3 GetOverlapCenter(const lcConnectionCylinder& Cylinder, const lcMatrix44& Frame, const lcConnectionCylinder& Other, const lcMatrix44& OtherFrame);
 	static bool IsRigid(const lcMatrix44& m);
+
+	static lcSnapBody GetBody(const lcBoundingBox& BoundingBox, const std::vector<lcConnectionCylinder>& Cylinders);
+	// Whether two boxes, each at its transform, overlap by more than Tolerance.
+	static bool DoBoxesOverlap(const lcBoundingBox& a, const lcMatrix44& TransformA, const lcBoundingBox& b, const lcMatrix44& TransformB, float Tolerance);
+	// Whether a box runs into a body by more than Tolerance, outside the body's free space.
+	static bool DoesBodyBlock(const lcBoundingBox& Box, const lcMatrix44& BoxTransform, const lcSnapBody& Body, const lcMatrix44& BodyTransform, float Tolerance);
 	static float GetDeterminant(const lcMatrix44& m);
 
 private:
