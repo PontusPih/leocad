@@ -119,6 +119,8 @@ struct lcCommandLineOptions
 	bool SaveCOLLADA = false;
 	bool SaveCSV = false;
 	bool SaveHTML = false;
+	bool DumpSnaps = false;
+	bool SnapSelfTest = false;
 	bool SetCameraAngles = false;
 	bool SetCameraPosition = false;
 	bool Orthographic = false;
@@ -163,6 +165,7 @@ struct lcCommandLineOptions
 	QString SaveCOLLADAName;
 	QString SaveCSVName;
 	QString SaveHTMLName;
+	QString DumpSnapsParts;
 	QString ShadowLibraryPath;
 	QList<QPair<QString, bool>> LibraryPaths;
 	QString StdOut;

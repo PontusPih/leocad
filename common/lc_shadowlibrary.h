@@ -22,6 +22,9 @@ public:
 	// Turns around the piece's bounding box centre when there is no pointer.
 	static std::optional<std::pair<lcVector3, lcMatrix33>> GetConnectionTurn(const lcPieceData* PieceData, const lcMatrix44& Transform, const std::vector<std::pair<const lcPieceData*, lcMatrix44>>& Others, int Direction, const std::optional<std::array<lcVector3, 2>>& PointerRay);
 
+	static QString DumpCylinders(const std::string& PartName);
+	static QString SelfTest(const lcModel* Model);
+
 private:
 	static std::string NormalizeName(const std::string& Name);
 	static const std::vector<QString>& GetShadowLines(const std::string& Name);
