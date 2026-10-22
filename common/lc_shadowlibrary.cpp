@@ -212,9 +212,9 @@ const std::vector<lcSnapCylinder>& lcShadowLibrary::GetCylinders(const std::stri
 	return Collected;
 }
 
-std::optional<lcMatrix44> lcShadowLibrary::FindPlacement(const lcPieceData* MovingPieceData, const lcMatrix44& ReferenceTransform, const lcVector3& GrabPoint, const lcPieceData* TargetPieceData, const lcMatrix44& TargetTransform, const lcVector3& HitPoint, const lcVector3& ViewDirection)
+std::optional<lcMatrix44> lcShadowLibrary::FindPlacement(const lcPieceData* MovingPieceData, const lcMatrix44& ReferenceTransform, const lcVector3& GrabPoint, const lcPieceData* TargetPieceData, const lcMatrix44& TargetTransform, const lcVector3& HitPoint, const lcVector3& ViewDirection, const std::vector<std::pair<const lcPieceData*, lcMatrix44>>& Others)
 {
-	const std::optional<lcSnapMatch> Match = FindMatch(MovingPieceData, ReferenceTransform, GrabPoint, TargetPieceData, TargetTransform, HitPoint, ViewDirection);
+	const std::optional<lcSnapMatch> Match = FindMatch(MovingPieceData, ReferenceTransform, GrabPoint, TargetPieceData, TargetTransform, HitPoint, ViewDirection, Others);
 
 	if (!Match)
 		return std::nullopt;
@@ -222,12 +222,29 @@ std::optional<lcMatrix44> lcShadowLibrary::FindPlacement(const lcPieceData* Movi
 	return Match->Transform;
 }
 
-std::optional<lcSnapMatch> lcShadowLibrary::FindMatch(const lcPieceData* MovingPieceData, const lcMatrix44& ReferenceTransform, const lcVector3& GrabPoint, const lcPieceData* TargetPieceData, const lcMatrix44& TargetTransform, const lcVector3& HitPoint, const lcVector3& ViewDirection)
+std::optional<lcSnapMatch> lcShadowLibrary::FindMatch(const lcPieceData* MovingPieceData, const lcMatrix44& ReferenceTransform, const lcVector3& GrabPoint, const lcPieceData* TargetPieceData, const lcMatrix44& TargetTransform, const lcVector3& HitPoint, const lcVector3& ViewDirection, const std::vector<std::pair<const lcPieceData*, lcMatrix44>>& Others)
 {
 	if (!MovingPieceData || !TargetPieceData || MovingPieceData->IsModel() || TargetPieceData->IsModel())
 		return std::nullopt;
 
-	std::optional<lcSnapMatch> Match = lcSnapShapes::FindMatch(GetCylinders(MovingPieceData->mFileName), ReferenceTransform, GrabPoint, GetCylinders(TargetPieceData->mFileName), TargetTransform, HitPoint, ViewDirection);
+	const std::vector<lcSnapCylinder>& MovingCylinders = GetCylinders(MovingPieceData->mFileName);
+	const lcBoundingBox& MovingBox = MovingPieceData->GetBoundingBox();
+	const float MovingSize = lcLength(MovingBox.Max - MovingBox.Min);
+	std::vector<std::pair<lcBoundingBox, lcMatrix44>> Obstacles;
+
+	// Only pieces the moving piece could reach from the cursor.
+	for (const auto& [PieceData, Transform] : Others)
+	{
+		if (!PieceData || PieceData->IsModel())
+			continue;
+
+		const lcBoundingBox& Box = PieceData->GetBoundingBox();
+
+		if (lcLength(lcMul31((Box.Min + Box.Max) / 2.0f, Transform) - HitPoint) < MovingSize + lcLength(Box.Max - Box.Min) / 2.0f)
+			Obstacles.emplace_back(lcSnapShapes::GetBodyBox(Box, GetCylinders(PieceData->mFileName)), Transform);
+	}
+
+	std::optional<lcSnapMatch> Match = lcSnapShapes::FindMatch(MovingCylinders, ReferenceTransform, GrabPoint, GetCylinders(TargetPieceData->mFileName), TargetTransform, HitPoint, ViewDirection, lcSnapShapes::GetBodyBox(MovingBox, MovingCylinders), Obstacles);
 
 	if (Match)
 		Match->TargetPieceData = TargetPieceData;
@@ -336,7 +353,7 @@ QString lcShadowLibrary::SelfTest(const lcModel* Model)
 					const lcVector3 HitPoint = TargetFrame.GetTranslation();
 					const lcVector3 GrabPoint = lcMul31(HitPoint, lcMatrix44AffineInverse(Moving->mModelWorld));
 					const lcVector3 ViewDirection = TargetCylinder->Gender == lcSnapGender::Male ? -Axis2 : Axis2;
-					const std::optional<lcMatrix44> Placement = FindPlacement(Moving->mPieceData.Get(), Moving->mModelWorld, GrabPoint, Target->mPieceData.Get(), Target->mModelWorld, HitPoint, ViewDirection);
+					const std::optional<lcMatrix44> Placement = FindPlacement(Moving->mPieceData.Get(), Moving->mModelWorld, GrabPoint, Target->mPieceData.Get(), Target->mModelWorld, HitPoint, ViewDirection, {});
 
 					Tested++;
 					bool Same = Placement.has_value() && lcLength(Placement->GetTranslation() - Moving->mModelWorld.GetTranslation()) < 0.01f;
@@ -403,7 +420,7 @@ QString lcShadowLibrary::SelfTest(const lcModel* Model)
 
 			const lcVector3 Stud = Frame.GetTranslation();
 			const lcVector3 HitPoint = Stud + lcVector3(4.0f, -3.0f, 0.0f);
-			const std::optional<lcMatrix44> Placement = FindPlacement(Brick, BrickStart, GrabPoint, Plate, lcMatrix44Identity(), HitPoint, ViewDirection);
+			const std::optional<lcMatrix44> Placement = FindPlacement(Brick, BrickStart, GrabPoint, Plate, lcMatrix44Identity(), HitPoint, ViewDirection, {});
 
 			Studs++;
 
@@ -417,7 +434,7 @@ QString lcShadowLibrary::SelfTest(const lcModel* Model)
 		Report += QString("\n1x2 brick dragged over %1 studs of a 6x8 plate, %2 landed wrong").arg(Studs).arg(Wrong);
 
 		// Snapped onto the middle of the plate, the brick connects by both its anti studs.
-		const std::optional<lcSnapMatch> Match = FindMatch(Brick, BrickStart, GrabPoint, Plate, lcMatrix44Identity(), lcVector3(-10.0f, 10.0f, 8.0f), ViewDirection);
+		const std::optional<lcSnapMatch> Match = FindMatch(Brick, BrickStart, GrabPoint, Plate, lcMatrix44Identity(), lcVector3(-10.0f, 10.0f, 8.0f), ViewDirection, {});
 		std::vector<lcVector3> Places;
 
 		if (Match)
@@ -448,7 +465,7 @@ QString lcShadowLibrary::SelfTest(const lcModel* Model)
 			const lcVector3 Stud = Frame.GetTranslation();
 			const lcVector3 ViewDirection = lcNormalize(-Axis + lcVector3(0.2f, 0.2f, -0.3f));
 			const lcVector3 HitPoint = Stud + lcVector3(0.0f, 0.0f, 3.0f);
-			const std::optional<lcMatrix44> Placement = FindPlacement(Brick, lcMatrix44Identity(), lcVector3(0.0f, 0.0f, 0.0f), SideStuds, lcMatrix44Identity(), HitPoint, ViewDirection);
+			const std::optional<lcMatrix44> Placement = FindPlacement(Brick, lcMatrix44Identity(), lcVector3(0.0f, 0.0f, 0.0f), SideStuds, lcMatrix44Identity(), HitPoint, ViewDirection, {});
 
 			Studs++;
 			bool Good = Placement.has_value();
@@ -515,7 +532,7 @@ QString lcShadowLibrary::SelfTest(const lcModel* Model)
 		for (float Held : { 10.0f, 30.0f, 50.0f })
 		{
 			const lcVector3 GrabPoint = lcVector3LDrawToLeoCAD(lcVector3(0.0f, Held, 0.0f));
-			const std::optional<lcMatrix44> Placement = FindPlacement(Bar, lcMatrix44Identity(), GrabPoint, HolePart, lcMatrix44Identity(), HitPoint, Axis);
+			const std::optional<lcMatrix44> Placement = FindPlacement(Bar, lcMatrix44Identity(), GrabPoint, HolePart, lcMatrix44Identity(), HitPoint, Axis, {});
 
 			if (!Placement)
 			{
@@ -541,7 +558,7 @@ QString lcShadowLibrary::SelfTest(const lcModel* Model)
 			}
 
 			// The bar covers the whole hole, so its connection is in the middle of the hole.
-			const std::optional<lcSnapMatch> Match = FindMatch(Bar, lcMatrix44Identity(), GrabPoint, HolePart, lcMatrix44Identity(), HitPoint, Axis);
+			const std::optional<lcSnapMatch> Match = FindMatch(Bar, lcMatrix44Identity(), GrabPoint, HolePart, lcMatrix44Identity(), HitPoint, Axis, {});
 			const lcVector3 HoleMiddle = HitPoint + Axis * ((HoleStart + HoleEnd) / 2.0f);
 
 			if (!Match || lcLength(Match->MovingPosition - HoleMiddle) > 0.01f || Match->Connections.empty() || lcLength(Match->Connections.front().Position - HoleMiddle) > 0.01f)
@@ -568,7 +585,7 @@ QString lcShadowLibrary::SelfTest(const lcModel* Model)
 		{
 			const lcVector3 HitPoint = BarFrame.GetTranslation() + Axis * Along;
 			const lcVector3 GrabPoint = lcVector3LDrawToLeoCAD(lcVector3(0.0f, 2.0f, -20.0f));
-			const std::optional<lcMatrix44> Placement = FindPlacement(ClipPlate, lcMatrix44Translation(lcVector3(0.0f, 0.0f, 100.0f)), GrabPoint, Bar, lcMatrix44Identity(), HitPoint, ViewDirection);
+			const std::optional<lcMatrix44> Placement = FindPlacement(ClipPlate, lcMatrix44Translation(lcVector3(0.0f, 0.0f, 100.0f)), GrabPoint, Bar, lcMatrix44Identity(), HitPoint, ViewDirection, {});
 			const lcVector3 Clip = Placement ? lcMul31(GrabPoint, *Placement) : lcVector3(FLT_MAX, FLT_MAX, FLT_MAX);
 
 			if (!Placement || lcLength(Clip - HitPoint) > 0.01f)

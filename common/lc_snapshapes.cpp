@@ -107,7 +107,7 @@ bool lcSnapShapes::AreCompatible(const lcSnapCylinder& a, const lcSnapCylinder& 
 	return false;
 }
 
-std::optional<lcSnapMatch> lcSnapShapes::FindMatch(const std::vector<lcSnapCylinder>& MovingCylinders, const lcMatrix44& ReferenceTransform, const lcVector3& GrabPoint, const std::vector<lcSnapCylinder>& TargetCylinders, const lcMatrix44& TargetTransform, const lcVector3& HitPoint, const lcVector3& ViewDirection)
+std::optional<lcSnapMatch> lcSnapShapes::FindMatch(const std::vector<lcSnapCylinder>& MovingCylinders, const lcMatrix44& ReferenceTransform, const lcVector3& GrabPoint, const std::vector<lcSnapCylinder>& TargetCylinders, const lcMatrix44& TargetTransform, const lcVector3& HitPoint, const lcVector3& ViewDirection, const lcBoundingBox& MovingBody, const std::vector<std::pair<lcBoundingBox, lcMatrix44>>& Obstacles)
 {
 	if (MovingCylinders.empty() || TargetCylinders.empty())
 		return std::nullopt;
@@ -149,12 +149,15 @@ std::optional<lcSnapMatch> lcSnapShapes::FindMatch(const std::vector<lcSnapCylin
 	// so they can't drift while dragging.
 	const lcMatrix33 ReferenceRotation(ReferenceTransform);
 	std::optional<lcSnapMatch> Best;
+	bool BestInterferes = false;
 
 	// Small round shapes (bars, and the pins under 1x plates and bricks, which fit hollow studs)
 	// are only used when nothing bigger fits: a brick held over a stud is meant to go on with an
 	// anti stud.
-	for (int Pass = 0; Pass < 2 && !Best; Pass++)
+	for (int Pass = 0; Pass < 2 && (!Best || BestInterferes); Pass++)
 	{
+		std::optional<lcSnapMatch> PassBest;
+		bool PassBestInterferes = false;
 		float BestScore = FLT_MAX;
 		float BestTrace = -FLT_MAX;
 
@@ -224,6 +227,18 @@ std::optional<lcSnapMatch> lcSnapShapes::FindMatch(const std::vector<lcSnapCylin
 
 					Placement.SetTranslation(Placement.GetTranslation() + TargetAxis * Shift);
 
+					// Running into another piece counts for more than any distance, so it only wins
+					// when every placement does. A little overlap is allowed, as pieces that touch
+					// share their faces.
+					const bool Interferes = std::any_of(Obstacles.begin(), Obstacles.end(), [&MovingBody, &Placement](const std::pair<lcBoundingBox, lcMatrix44>& Obstacle)
+					{
+						return DoBoxesOverlap(MovingBody, Placement, Obstacle.first, Obstacle.second, 0.5f);
+					});
+					const float PlacementScore = Interferes ? Score + 1000.0f : Score;
+
+					if (PlacementScore > BestScore + 0.5f)
+						continue;
+
 					const lcMatrix33 Rotation(Placement);
 					float Trace = 0.0f;
 
@@ -231,14 +246,22 @@ std::optional<lcSnapMatch> lcSnapShapes::FindMatch(const std::vector<lcSnapCylin
 						Trace += lcDot(Rotation.r[Row], ReferenceRotation.r[Row]);
 
 					// Clearly better pairs win; between equally good ones, the closest rotation.
-					if (Score < BestScore - 0.5f || Trace > BestTrace)
+					if (PlacementScore < BestScore - 0.5f || Trace > BestTrace)
 					{
-						BestTrace = Score < BestScore - 0.5f ? Trace : std::max(BestTrace, Trace);
-						BestScore = std::min(BestScore, Score);
-						Best = lcSnapMatch{ Placement, GetOverlapCenter(Moving, lcMul(MovingFrame, Placement), *Target.Cylinder, Target.Frame), TargetAxis, MaxRadius, nullptr, TargetTransform, {} };
+						BestTrace = PlacementScore < BestScore - 0.5f ? Trace : std::max(BestTrace, Trace);
+						BestScore = std::min(BestScore, PlacementScore);
+						PassBest = lcSnapMatch{ Placement, GetOverlapCenter(Moving, lcMul(MovingFrame, Placement), *Target.Cylinder, Target.Frame), TargetAxis, MaxRadius, nullptr, TargetTransform, {} };
+						PassBestInterferes = Interferes;
 					}
 				}
 			}
+		}
+
+		// A placement with small shapes that runs into nothing beats one with bigger shapes that does.
+		if (PassBest && (!Best || (BestInterferes && !PassBestInterferes)))
+		{
+			Best = PassBest;
+			BestInterferes = PassBestInterferes;
 		}
 	}
 
@@ -325,4 +348,85 @@ std::optional<std::pair<lcVector3, lcMatrix33>> lcSnapShapes::GetConnectionTurn(
 			Pivot = &Connection;
 
 	return std::make_pair(Pivot->Position, lcMatrix33FromAxisAngle(Pivot->Axis, Direction * LC_PI / 2.0f));
+}
+
+lcBoundingBox lcSnapShapes::GetBodyBox(const lcBoundingBox& BoundingBox, const std::vector<lcSnapCylinder>& Cylinders)
+{
+	lcBoundingBox Body = BoundingBox;
+
+	// Studs stick out of the body and go into other pieces; cut a box face back to the stud bases
+	// when stud size shapes end on it. Smaller ones, like the pins under 1x plates, are inside.
+	for (const lcSnapCylinder& Cylinder : Cylinders)
+	{
+		if (Cylinder.Gender != lcSnapGender::Male || Cylinder.GetRadius() < 5.0f)
+			continue;
+
+		const lcMatrix44 Frame = lcMatrix44LDrawToLeoCAD(Cylinder.Transform);
+		const lcVector3 Axis = lcNormalize(lcMul30(lcVector3(0.0f, 0.0f, 1.0f), Frame));
+		const auto [Start, End] = Cylinder.GetExtent();
+		const lcVector3 Base = Frame.GetTranslation() + Axis * Start;
+		const lcVector3 Tip = Frame.GetTranslation() + Axis * End;
+
+		for (int Coordinate = 0; Coordinate < 3; Coordinate++)
+		{
+			if (Axis[Coordinate] > 0.99f && fabsf(Tip[Coordinate] - BoundingBox.Max[Coordinate]) < 0.5f)
+				Body.Max[Coordinate] = std::max(std::min(Body.Max[Coordinate], Base[Coordinate]), Body.Min[Coordinate]);
+			else if (Axis[Coordinate] < -0.99f && fabsf(Tip[Coordinate] - BoundingBox.Min[Coordinate]) < 0.5f)
+				Body.Min[Coordinate] = std::min(std::max(Body.Min[Coordinate], Base[Coordinate]), Body.Max[Coordinate]);
+		}
+	}
+
+	return Body;
+}
+
+// Separating axis test of two boxes, each shrunk by Tolerance on every side.
+bool lcSnapShapes::DoBoxesOverlap(const lcBoundingBox& a, const lcMatrix44& TransformA, const lcBoundingBox& b, const lcMatrix44& TransformB, float Tolerance)
+{
+	const lcVector3 Shrink(Tolerance, Tolerance, Tolerance);
+	const lcVector3 HalfA = (a.Max - a.Min) / 2.0f - Shrink;
+	const lcVector3 HalfB = (b.Max - b.Min) / 2.0f - Shrink;
+
+	for (int Axis = 0; Axis < 3; Axis++)
+		if (HalfA[Axis] <= 0.0f || HalfB[Axis] <= 0.0f)
+			return false;
+
+	const lcVector3 Offset = lcMul31((b.Min + b.Max) / 2.0f, TransformB) - lcMul31((a.Min + a.Max) / 2.0f, TransformA);
+	lcVector3 AxesA[3], AxesB[3];
+
+	for (int Axis = 0; Axis < 3; Axis++)
+	{
+		AxesA[Axis] = lcNormalize(lcVector3(TransformA.r[Axis]));
+		AxesB[Axis] = lcNormalize(lcVector3(TransformB.r[Axis]));
+	}
+
+	std::vector<lcVector3> Separators(AxesA, AxesA + 3);
+	Separators.insert(Separators.end(), AxesB, AxesB + 3);
+
+	for (const lcVector3& AxisA : AxesA)
+	{
+		for (const lcVector3& AxisB : AxesB)
+		{
+			const lcVector3 Cross = lcCross(AxisA, AxisB);
+
+			if (lcLength(Cross) > 0.0001f)
+				Separators.push_back(lcNormalize(Cross));
+		}
+	}
+
+	for (const lcVector3& Separator : Separators)
+	{
+		float RadiusA = 0.0f;
+		float RadiusB = 0.0f;
+
+		for (int Axis = 0; Axis < 3; Axis++)
+		{
+			RadiusA += HalfA[Axis] * fabsf(lcDot(AxesA[Axis], Separator));
+			RadiusB += HalfB[Axis] * fabsf(lcDot(AxesB[Axis], Separator));
+		}
+
+		if (fabsf(lcDot(Offset, Separator)) >= RadiusA + RadiusB)
+			return false;
+	}
+
+	return true;
 }

@@ -310,6 +310,7 @@ public:
 	void FocusPreviousTrainTrack();
 	void RotateFocusedTrainTrack(int Direction);
 	void RotateAroundConnection(int Direction, const std::array<lcVector3, 2>& PointerRay);
+	std::vector<std::pair<const lcPieceData*, lcMatrix44>> GetVisibleParts(bool IgnoreSelected) const;
 	void ShowSelectedPiecesEarlier();
 	void ShowSelectedPiecesLater();
 	void InsertStepAndMoveSelectedPieces(lcStep Step);
