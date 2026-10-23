@@ -26,4 +26,5 @@ private slots:
 	void SnapBoxesOverlap();
 	void SnapAvoidsRunningIntoOtherPieces();
 	void SnapFitsInsideHollowPieces();
+	void SnapLinesUpRoundConnections();
 };

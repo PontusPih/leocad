@@ -444,3 +444,70 @@ void lcTests::SnapFitsInsideHollowPieces()
 	QVERIFY(fabsf(Match->Transform.r[0][0]) > 0.999f);
 	QVERIFY(!lcSnapShapes::DoesBodyBlock(BrickBody, Match->Transform, TrayBody, lcMatrix44Identity(), 0.5f));
 }
+
+static size_t CountPlaces(const std::vector<lcSnapConnection>& Connections)
+{
+	std::vector<lcVector3> Places;
+
+	for (const lcSnapConnection& Connection : Connections)
+		if (std::none_of(Places.begin(), Places.end(), [&Connection](const lcVector3& Place) { return lcLength(Place - Connection.Position) < 0.5f; }))
+			Places.push_back(Connection.Position);
+
+	return Places.size();
+}
+
+void lcTests::SnapLinesUpRoundConnections()
+{
+	// A 2x2 round corner brick has round anti studs, so on one stud it could keep any angle.
+	// Dragged in turned 30 degrees onto another one, it settles where its second anti stud is on
+	// the second stud too.
+	const std::vector<lcSnapCylinder> Corner = MakePart({
+		"0 !LDCAD SNAP_CYL [gender=F] [caps=one] [secs=R 6 20] [pos=20 24 0]",
+		"0 !LDCAD SNAP_CYL [gender=F] [caps=one] [secs=R 6 20] [pos=0 24 -20]",
+		"0 !LDCAD SNAP_CYL [gender=M] [caps=one] [secs=R 6 4] [pos=20 0 0]",
+		"0 !LDCAD SNAP_CYL [gender=M] [caps=one] [secs=R 6 4] [pos=0 0 -20]",
+	});
+	lcMatrix44 Turned = lcMatrix44RotationZ(LC_PI / 6.0f);
+	Turned.SetTranslation(lcVector3(0.0f, 0.0f, 100.0f));
+	const lcVector3 GrabPoint = lcVector3LDrawToLeoCAD(lcVector3(20.0f, 24.0f, 0.0f));
+	const lcVector3 Stud = lcVector3LDrawToLeoCAD(lcVector3(20.0f, 0.0f, 0.0f));
+	const std::optional<lcSnapMatch> Match = lcSnapShapes::FindMatch(Corner, Turned, GrabPoint, Corner, lcMatrix44Identity(), Stud + lcVector3(1.0f, 1.0f, 0.0f), lcNormalize(lcVector3(0.3f, 0.5f, -0.8f)), lcBoundingBox(), {});
+
+	QVERIFY(Match);
+	QCOMPARE(CountPlaces(Match->Connections), size_t(2));
+	QVERIFY(lcLength(lcVector3(Match->Transform.r[0]) - lcVector3(1.0f, 0.0f, 0.0f)) < 0.001f);
+
+	// A dome with four round sockets, dragged in at an odd angle onto a plate, settles with all
+	// four on studs.
+	const std::vector<lcSnapCylinder> Dome = MakePart({ "0 !LDCAD SNAP_CYL [gender=F] [caps=one] [secs=R 6 4] [grid=C 2 C 2 60 60]" });
+	const std::vector<lcSnapCylinder> Plate = MakePlate(6, 8);
+	lcMatrix44 DomeStart = lcMatrix44RotationZ(0.35f);
+	DomeStart.SetTranslation(lcVector3(0.0f, 0.0f, 100.0f));
+	const std::optional<lcSnapMatch> DomeMatch = lcSnapShapes::FindMatch(Dome, DomeStart, lcVector3LDrawToLeoCAD(lcVector3(30.0f, 0.0f, 30.0f)), Plate, lcMatrix44Identity(), lcVector3(30.0f, 30.0f, 0.0f), lcNormalize(lcVector3(0.3f, 0.5f, -0.8f)), lcBoundingBox(), {});
+
+	QVERIFY(DomeMatch);
+	QCOMPARE(CountPlaces(DomeMatch->Connections), size_t(4));
+
+	// Where the target's points aren't on a square grid, as with studs at 45 degrees on a round
+	// plate, the angle comes from lining up the second point, not from a quarter turn.
+	const std::vector<lcSnapCylinder> Diagonal = MakePart({
+		"0 !LDCAD SNAP_CYL [gender=M] [caps=one] [secs=R 6 4]",
+		"0 !LDCAD SNAP_CYL [gender=M] [caps=one] [secs=R 6 4] [pos=14.142136 0 -14.142136]",
+	});
+	const std::vector<lcSnapCylinder> Pair = MakePart({ "0 !LDCAD SNAP_CYL [gender=F] [caps=one] [secs=R 6 4] [pos=0 8 0] [grid=2 1 20 0]" });
+	lcMatrix44 PairStart = lcMatrix44RotationZ(0.2f);
+	PairStart.SetTranslation(lcVector3(0.0f, 0.0f, 100.0f));
+	const std::optional<lcSnapMatch> PairMatch = lcSnapShapes::FindMatch(Pair, PairStart, lcVector3(0.0f, 0.0f, -8.0f), Diagonal, lcMatrix44Identity(), lcVector3(1.0f, 1.0f, 0.0f), lcNormalize(lcVector3(0.3f, 0.5f, -0.8f)), lcBoundingBox(), {});
+
+	QVERIFY(PairMatch);
+	QCOMPARE(CountPlaces(PairMatch->Connections), size_t(2));
+
+	// With a single round connection nothing lines up the angle, so the piece keeps it.
+	const std::vector<lcSnapCylinder> RoundPlate = MakePart({ "0 !LDCAD SNAP_CYL [gender=F] [caps=one] [secs=R 6 4] [pos=0 8 0]" });
+	lcMatrix44 RoundStart = lcMatrix44RotationZ(0.35f);
+	RoundStart.SetTranslation(lcVector3(0.0f, 0.0f, 100.0f));
+	const std::optional<lcSnapMatch> RoundMatch = lcSnapShapes::FindMatch(RoundPlate, RoundStart, lcVector3(0.0f, 0.0f, -8.0f), Plate, lcMatrix44Identity(), lcVector3(-10.0f, 10.0f, 0.0f), lcNormalize(lcVector3(0.3f, 0.5f, -0.8f)), lcBoundingBox(), {});
+
+	QVERIFY(RoundMatch);
+	QVERIFY(fabsf(atan2f(RoundMatch->Transform.r[0][1], RoundMatch->Transform.r[0][0]) - 0.35f) < 0.001f);
+}
