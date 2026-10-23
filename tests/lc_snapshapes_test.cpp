@@ -511,3 +511,43 @@ void lcTests::SnapLinesUpRoundConnections()
 	QVERIFY(RoundMatch);
 	QVERIFY(fabsf(atan2f(RoundMatch->Transform.r[0][1], RoundMatch->Transform.r[0][0]) - 0.35f) < 0.001f);
 }
+
+void lcTests::SnapTurnsRoundConnectionsIntoLine()
+{
+	// A round corner brick on one stud of another, turned 30 degrees so its second anti stud
+	// misses: a turn either way goes to where both are on studs, and from there it is a quarter turn.
+	const std::vector<lcSnapCylinder> Corner = MakePart({
+		"0 !LDCAD SNAP_CYL [gender=F] [caps=one] [secs=R 6 20] [pos=20 24 0]",
+		"0 !LDCAD SNAP_CYL [gender=F] [caps=one] [secs=R 6 20] [pos=0 24 -20]",
+		"0 !LDCAD SNAP_CYL [gender=M] [caps=one] [secs=R 6 4] [pos=20 0 0]",
+		"0 !LDCAD SNAP_CYL [gender=M] [caps=one] [secs=R 6 4] [pos=0 0 -20]",
+	});
+	const std::vector<std::pair<const std::vector<lcSnapCylinder>*, lcMatrix44>> Lower = { { &Corner, lcMatrix44Identity() } };
+	const lcVector3 Stud = lcVector3LDrawToLeoCAD(lcVector3(20.0f, 0.0f, 0.0f));
+	const lcMatrix44 Stacked = lcMatrix44Translation(lcVector3(0.0f, 0.0f, 24.0f));
+	const lcMatrix44 Turned = lcMul(lcMul(lcMul(Stacked, lcMatrix44Translation(-Stud)), lcMatrix44RotationZ(LC_PI / 6.0f)), lcMatrix44Translation(Stud));
+	const std::array<lcVector3, 2> PointerRay = {{ Stud + lcVector3(0.0f, 0.0f, 1000.0f), Stud - lcVector3(0.0f, 0.0f, 1000.0f) }};
+	const auto Apply = [](const lcMatrix44& Transform, const std::pair<lcVector3, lcMatrix33>& Turn)
+	{
+		return lcMatrix44(lcMul(lcMatrix33(Transform), Turn.second), lcMul(Transform.GetTranslation() - Turn.first, Turn.second) + Turn.first);
+	};
+
+	QCOMPARE(CountPlaces(lcSnapShapes::FindConnections(Corner, Turned, Lower)), size_t(1));
+
+	for (int Direction : { -1, 1 })
+	{
+		const std::optional<std::pair<lcVector3, lcMatrix33>> Turn = lcSnapShapes::GetConnectionTurn(Corner, Turned, lcVector3(0.0f, 0.0f, 0.0f), Lower, Direction, PointerRay);
+
+		QVERIFY(Turn);
+
+		const lcMatrix44 After = Apply(Turned, *Turn);
+
+		QCOMPARE(CountPlaces(lcSnapShapes::FindConnections(Corner, After, Lower)), size_t(2));
+		QVERIFY(lcLength(After.GetTranslation() - Stacked.GetTranslation()) < 0.01f);
+	}
+
+	const std::optional<std::pair<lcVector3, lcMatrix33>> Quarter = lcSnapShapes::GetConnectionTurn(Corner, Stacked, lcVector3(0.0f, 0.0f, 0.0f), Lower, 1, PointerRay);
+
+	QVERIFY(Quarter);
+	QVERIFY(fabsf(lcDot(lcMul(lcVector3(1.0f, 0.0f, 0.0f), Quarter->second), lcVector3(1.0f, 0.0f, 0.0f))) < 0.001f);
+}
