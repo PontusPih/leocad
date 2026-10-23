@@ -28,4 +28,5 @@ private slots:
 	void SnapFitsInsideHollowPieces();
 	void SnapLinesUpRoundConnections();
 	void SnapTurnsRoundConnectionsIntoLine();
+	void SnapLinesUpWithNeighbors();
 };
