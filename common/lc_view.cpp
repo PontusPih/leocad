@@ -119,6 +119,7 @@ void lcView::RotateDraggedPiece(const lcPiece* Piece, const lcMatrix33& Rotation
 			lcMatrix33 NewRotation = lcMul(lcMatrix33(View->mMouseDownTransform), Rotation);
 			NewRotation.Orthonormalize();
 			View->mMouseDownTransform = lcMatrix44(NewRotation, View->mMouseDownTransform.GetTranslation());
+			View->mMouseDownTurned = true;
 
 			// Until the next mouse move snaps again, show the connections of the turned piece.
 			if (View->mSnapMatch)
@@ -661,11 +662,13 @@ std::pair<std::vector<lcInsertPieceInfo>, bool> lcView::GetMouseInsertPieceInfo(
 			const lcVector3 HitPoint = ObjectRayTest.Start + lcNormalize(ObjectRayTest.End - ObjectRayTest.Start) * ObjectRayTest.Distance;
 			lcMatrix44 MovingTransform = lcMatrix44Identity();
 			lcVector3 GrabPoint(0.0f, 0.0f, 0.0f);
+			bool KeepAngle = false;
 
 			if (MovingPiece && MovingPiece == mMouseDownPiece)
 			{
 				MovingTransform = mMouseDownTransform;
 				GrabPoint = mMouseDownGrabPoint;
+				KeepAngle = mMouseDownTurned;
 			}
 			else if (MovingPiece)
 				MovingTransform = MovingPiece->mModelWorld;
@@ -673,7 +676,7 @@ std::pair<std::vector<lcInsertPieceInfo>, bool> lcView::GetMouseInsertPieceInfo(
 			// Snap onto the part that was hit: inside a submodel that is one of its parts, at its world position.
 			const lcPieceData* TargetPieceData = ObjectRayTest.PieceRayTest.PieceData ? ObjectRayTest.PieceRayTest.PieceData : MousePiece->mPieceData.Get();
 			const lcMatrix44 TargetTransform = ObjectRayTest.PieceRayTest.PieceData ? ObjectRayTest.PieceRayTest.Transform : MousePiece->mModelWorld;
-			mSnapMatch = lcShadowLibrary::FindMatch(PieceData.Get(), MovingTransform, GrabPoint, TargetPieceData, TargetTransform, HitPoint, lcNormalize(ObjectRayTest.End - ObjectRayTest.Start), ActiveModel->GetVisibleParts(IgnoreSelected));
+			mSnapMatch = lcShadowLibrary::FindMatch(PieceData.Get(), MovingTransform, KeepAngle, GrabPoint, TargetPieceData, TargetTransform, HitPoint, lcNormalize(ObjectRayTest.End - ObjectRayTest.Start), ActiveModel->GetVisibleParts(IgnoreSelected));
 
 			if (mSnapMatch)
 				return { { lcInsertPieceInfo{ PieceData.Get(), mSnapMatch->Transform, gMainWindow->mColorIndex } }, true };
@@ -2567,6 +2570,7 @@ void lcView::UpdateTrackTool()
 				{
 					lcPiece* Piece = (lcPiece*)Object;
 					mMouseDownTransform = Piece->mModelWorld;
+					mMouseDownTurned = false;
 					mMouseDownPiece = Piece;
 					NewTrackTool = lcTrackTool::MoveXYZ;
 
