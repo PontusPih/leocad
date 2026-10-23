@@ -173,7 +173,7 @@ bool lcConnectivity::AreConnected(const std::vector<std::pair<const std::vector<
 	return false;
 }
 
-std::optional<lcSnapMatch> lcConnectivity::FindMatch(const std::vector<lcConnectionCylinder>& MovingCylinders, const lcMatrix44& ReferenceTransform, const lcVector3& GrabPoint, const std::vector<lcConnectionCylinder>& TargetCylinders, const lcMatrix44& TargetTransform, const lcVector3& HitPoint, const lcVector3& ViewDirection, const lcBoundingBox& MovingBody, const std::vector<lcSnapNeighbor>& Neighbors)
+std::optional<lcSnapMatch> lcConnectivity::FindMatch(const std::vector<lcConnectionCylinder>& MovingCylinders, const lcMatrix44& ReferenceTransform, bool KeepAngle, const lcVector3& GrabPoint, const std::vector<lcConnectionCylinder>& TargetCylinders, const lcMatrix44& TargetTransform, const lcVector3& HitPoint, const lcVector3& ViewDirection, const lcBoundingBox& MovingBody, const std::vector<lcSnapNeighbor>& Neighbors)
 {
 	if (MovingCylinders.empty() || TargetCylinders.empty())
 		return std::nullopt;
@@ -272,13 +272,17 @@ std::optional<lcSnapMatch> lcConnectivity::FindMatch(const std::vector<lcConnect
 				// keep any angle, but only if the piece already lines up with the connection axis.
 				std::vector<float> Angles = { 0.0f, LC_PI / 2.0f, LC_PI, LC_PI * 1.5f };
 				const bool Round = IsRound(Moving) && IsRound(*Target.Cylinder);
+				bool HasKeptAngle = false;
 
 				if (Round)
 				{
 					const lcMatrix33 Turn = lcMul(lcMul(lcMatrix33(MovingFrame), ReferenceRotation), lcMatrix33AffineInverse(lcMatrix33(Target.Frame)));
 
 					if (lcDot(Turn.r[2], lcVector3(0.0f, 0.0f, 1.0f)) > 0.999f)
+					{
 						Angles.push_back(atan2f(Turn.r[0][1], Turn.r[0][0]));
+						HasKeptAngle = true;
+					}
 
 					// And the angles that turn another of the moving piece's points onto one of the
 					// target's or a neighbor's, so the piece settles where its other points line up too.
@@ -313,13 +317,14 @@ std::optional<lcSnapMatch> lcConnectivity::FindMatch(const std::vector<lcConnect
 					lcMatrix44 Placement;
 					bool Interferes;
 					size_t Connections;
+					bool Kept;
 				};
 
 				std::vector<lcAngleCandidate> Candidates;
 
-				for (float Angle : Angles)
+				for (size_t AngleIndex = 0; AngleIndex < Angles.size(); AngleIndex++)
 				{
-					lcMatrix44 Placement = lcMul(lcMul(MovingInverse, lcMatrix44RotationZ(Angle)), Target.Frame);
+					lcMatrix44 Placement = lcMul(lcMul(MovingInverse, lcMatrix44RotationZ(Angles[AngleIndex])), Target.Frame);
 
 					if (!IsRigid(Placement))
 						continue;
@@ -343,12 +348,17 @@ std::optional<lcSnapMatch> lcConnectivity::FindMatch(const std::vector<lcConnect
 					});
 					const size_t Connections = Round ? FindConnections(MovingCylinders, Placement, Shapes).size() : 0;
 
-					Candidates.push_back({ Placement, Interferes, Connections });
+					Candidates.push_back({ Placement, Interferes, Connections, HasKeptAngle && AngleIndex == 4 });
 				}
 
-				// A round connection leaves the angle free: use the angles where the most of the
-				// moving piece's points connect, preferring those that run into nothing.
-				if (Round && !Candidates.empty())
+				// A round connection leaves the angle free: keep the angle the piece was turned to, or
+				// else use the angles where the most of the moving piece's points connect, preferring
+				// those that run into nothing.
+				const auto Kept = std::find_if(Candidates.begin(), Candidates.end(), [](const lcAngleCandidate& Candidate) { return Candidate.Kept; });
+
+				if (KeepAngle && Kept != Candidates.end())
+					Candidates = { *Kept };
+				else if (Round && !Candidates.empty())
 				{
 					const auto Better = [](const lcAngleCandidate& a, const lcAngleCandidate& b)
 					{

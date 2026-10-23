@@ -386,6 +386,7 @@ protected:
 	bool mTrackToolFromOverlay;
 	quint32 mTrackToolSection = ~0U;
 	lcMatrix44 mMouseDownTransform;
+	bool mMouseDownTurned = false; // Turned with a key during the drag, so snapping keeps the angle.
 	lcPiece* mMouseDownPiece = nullptr;
 	lcVector3 mMouseDownGrabPoint = lcVector3(0.0f, 0.0f, 0.0f); // Where the dragged piece was grabbed, in its own coordinates.
 	mutable std::optional<lcSnapMatch> mSnapMatch; // The connection of the last snapped placement, drawn while dragging.
