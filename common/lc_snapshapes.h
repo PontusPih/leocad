@@ -83,6 +83,7 @@ struct lcSnapConnection
 	lcVector3 Position; // The middle of where the shapes overlap.
 	lcVector3 Axis; // The way the connected shapes run.
 	float Radius;
+	bool Round; // Both shapes round, so the piece could turn around it.
 };
 
 // A placement found for a moving piece and the connection it was built on, in LeoCAD world coordinates.
@@ -119,10 +120,11 @@ public:
 	static std::optional<lcSnapMatch> FindMatch(const std::vector<lcSnapCylinder>& MovingCylinders, const lcMatrix44& ReferenceTransform, const lcVector3& GrabPoint, const std::vector<lcSnapCylinder>& TargetCylinders, const lcMatrix44& TargetTransform, const lcVector3& HitPoint, const lcVector3& ViewDirection, const lcBoundingBox& MovingBody, const std::vector<std::pair<lcSnapBody, lcMatrix44>>& Obstacles);
 	// Connections by which shapes at Transform are attached to any of Others.
 	static std::vector<lcSnapConnection> FindConnections(const std::vector<lcSnapCylinder>& Cylinders, const lcMatrix44& Transform, const std::vector<std::pair<const std::vector<lcSnapCylinder>*, lcMatrix44>>& Others);
-	// A quarter turn (Direction 1 or -1) around a connection that attaches shapes at Transform to
-	// Others: the one nearest PointerRay (start and end of the line under the pointer), or without it
-	// the one closest to Center (in the shapes' coordinates). Returns the pivot and the rotation, or
-	// nothing if they aren't attached.
+	// A turn (Direction 1 or -1) around a connection that attaches shapes at Transform to Others:
+	// the one nearest PointerRay (start and end of the line under the pointer), or without it the
+	// one closest to Center (in the shapes' coordinates). Around a round connection, the turn goes
+	// to the nearest angle that connects more of the shapes, otherwise it is a quarter turn.
+	// Returns the pivot and the rotation, or nothing if they aren't attached.
 	static std::optional<std::pair<lcVector3, lcMatrix33>> GetConnectionTurn(const std::vector<lcSnapCylinder>& Cylinders, const lcMatrix44& Transform, const lcVector3& Center, const std::vector<std::pair<const std::vector<lcSnapCylinder>*, lcMatrix44>>& Others, int Direction, const std::optional<std::array<lcVector3, 2>>& PointerRay);
 
 	// Where a male shape can sit along a female one running the same way, as the male's offset

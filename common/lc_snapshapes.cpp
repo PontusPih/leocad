@@ -337,6 +337,7 @@ std::vector<lcSnapConnection> lcSnapShapes::FindConnections(const std::vector<lc
 		const lcMatrix44 Frame = lcMul(lcMatrix44LDrawToLeoCAD(Cylinder.Transform), Transform);
 		const lcVector3 Axis = lcNormalize(lcMul30(ShapeAxis, Frame));
 		std::optional<lcVector3> Center;
+		bool Round = false;
 
 		for (const auto& [OtherCylinders, OtherTransform] : Others)
 		{
@@ -364,6 +365,7 @@ std::vector<lcSnapConnection> lcSnapShapes::FindConnections(const std::vector<lc
 				if (InsertRange && MaleOffset > InsertRange->first - 0.5f && MaleOffset < InsertRange->second + 0.5f)
 				{
 					Center = GetOverlapCenter(Cylinder, Frame, OtherCylinder, OtherFrame);
+					Round = IsRound(Cylinder) && IsRound(OtherCylinder);
 					break;
 				}
 			}
@@ -373,7 +375,7 @@ std::vector<lcSnapConnection> lcSnapShapes::FindConnections(const std::vector<lc
 		}
 
 		if (Center)
-			Connections.push_back({ *Center, Axis, Cylinder.GetRadius() });
+			Connections.push_back({ *Center, Axis, Cylinder.GetRadius(), Round });
 	}
 
 	return Connections;
@@ -403,7 +405,69 @@ std::optional<std::pair<lcVector3, lcMatrix33>> lcSnapShapes::GetConnectionTurn(
 		if (Distance(Connection) < Distance(*Pivot) - 0.01f)
 			Pivot = &Connection;
 
-	return std::make_pair(Pivot->Position, lcMatrix33FromAxisAngle(Pivot->Axis, Direction * LC_PI / 2.0f));
+	const lcMatrix33 QuarterTurn = lcMatrix33FromAxisAngle(Pivot->Axis, Direction * LC_PI / 2.0f);
+
+	if (!Pivot->Round)
+		return std::make_pair(Pivot->Position, QuarterTurn);
+
+	// Around a round connection, the angles that bring another of the shapes onto one of Others'.
+	const lcVector3 PivotPosition = Pivot->Position;
+	const lcVector3 PivotAxis = Pivot->Axis;
+	const auto AroundPivot = [&PivotPosition, &PivotAxis](const lcVector3& Point)
+	{
+		const lcVector3 Offset = Point - PivotPosition;
+		return Offset - PivotAxis * lcDot(Offset, PivotAxis);
+	};
+
+	std::optional<lcMatrix33> Best;
+	float BestTurn = FLT_MAX;
+
+	for (const lcSnapCylinder& Cylinder : Cylinders)
+	{
+		const lcVector3 From = AroundPivot(lcMul31(lcMatrix44LDrawToLeoCAD(Cylinder.Transform).GetTranslation(), Transform));
+
+		if (lcLength(From) < 1.0f)
+			continue;
+
+		for (const auto& [OtherCylinders, OtherTransform] : Others)
+		{
+			for (const lcSnapCylinder& OtherCylinder : *OtherCylinders)
+			{
+				if (!AreCompatible(Cylinder, OtherCylinder))
+					continue;
+
+				const lcVector3 To = AroundPivot(lcMul31(lcMatrix44LDrawToLeoCAD(OtherCylinder.Transform).GetTranslation(), OtherTransform));
+
+				if (fabsf(lcLength(To) - lcLength(From)) > 0.5f)
+					continue;
+
+				float Angle = atan2f(lcDot(lcCross(From, To), PivotAxis), lcDot(From, To));
+				lcMatrix33 Rotation = lcMatrix33FromAxisAngle(PivotAxis, Angle);
+
+				if (lcLength(lcMul(From, Rotation) - To) > 0.5f)
+				{
+					Angle = -Angle;
+					Rotation = lcMatrix33FromAxisAngle(PivotAxis, Angle);
+				}
+
+				// How far to turn in Direction, from just past where the shapes are now.
+				const float Turn = fmodf(Direction * Angle + LC_2PI, LC_2PI);
+
+				if (Turn < 0.01f || Turn > LC_2PI - 0.01f || Turn >= BestTurn)
+					continue;
+
+				const lcMatrix44 Turned = lcMul(lcMul(lcMul(Transform, lcMatrix44Translation(-PivotPosition)), lcMatrix44(Rotation, lcVector3(0.0f, 0.0f, 0.0f))), lcMatrix44Translation(PivotPosition));
+
+				if (FindConnections(Cylinders, Turned, Others).size() > Connections.size())
+				{
+					Best = Rotation;
+					BestTurn = Turn;
+				}
+			}
+		}
+	}
+
+	return std::make_pair(Pivot->Position, Best ? *Best : QuarterTurn);
 }
 
 lcSnapBody lcSnapShapes::GetBody(const lcBoundingBox& BoundingBox, const std::vector<lcSnapCylinder>& Cylinders)
