@@ -21,7 +21,7 @@ std::optional<lcSnapMatch> lcPieceConnectivity::FindMatch(const lcPieceData* Mov
 	const std::vector<lcConnectionCylinder>& MovingCylinders = lcShadowLibrary::GetCylinders(MovingPieceData->mFileName);
 	const lcBoundingBox& MovingBox = MovingPieceData->GetBoundingBox();
 	const float MovingSize = lcLength(MovingBox.Max - MovingBox.Min);
-	std::vector<std::pair<lcSnapBody, lcMatrix44>> Obstacles;
+	std::vector<lcSnapNeighbor> Neighbors;
 
 	// Only pieces the moving piece could reach from the cursor.
 	for (const auto& [PieceData, Transform] : Others)
@@ -32,15 +32,13 @@ std::optional<lcSnapMatch> lcPieceConnectivity::FindMatch(const lcPieceData* Mov
 		const lcBoundingBox& Box = PieceData->GetBoundingBox();
 
 		if (lcLength(lcMul31((Box.Min + Box.Max) / 2.0f, Transform) - HitPoint) < MovingSize + lcLength(Box.Max - Box.Min) / 2.0f)
-			Obstacles.emplace_back(lcConnectivity::GetBody(Box, lcShadowLibrary::GetCylinders(PieceData->mFileName)), Transform);
+		{
+			const std::vector<lcConnectionCylinder>& Cylinders = lcShadowLibrary::GetCylinders(PieceData->mFileName);
+			Neighbors.push_back({ &Cylinders, lcConnectivity::GetBody(Box, Cylinders), Transform });
+		}
 	}
 
-	std::optional<lcSnapMatch> Match = lcConnectivity::FindMatch(MovingCylinders, ReferenceTransform, GrabPoint, lcShadowLibrary::GetCylinders(TargetPieceData->mFileName), TargetTransform, HitPoint, ViewDirection, lcConnectivity::GetBody(MovingBox, MovingCylinders).Box, Obstacles);
-
-	if (Match)
-		Match->TargetPieceData = TargetPieceData;
-
-	return Match;
+	return lcConnectivity::FindMatch(MovingCylinders, ReferenceTransform, GrabPoint, lcShadowLibrary::GetCylinders(TargetPieceData->mFileName), TargetTransform, HitPoint, ViewDirection, lcConnectivity::GetBody(MovingBox, MovingCylinders).Box, Neighbors);
 }
 
 std::vector<std::pair<const std::vector<lcConnectionCylinder>*, lcMatrix44>> lcPieceConnectivity::GetPieceShapes(const std::vector<std::pair<const lcPieceData*, lcMatrix44>>& Pieces)
