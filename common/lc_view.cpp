@@ -129,7 +129,7 @@ void lcView::RotateDraggedPiece(const lcPiece* Piece, const lcMatrix33& Rotation
 				Match.MovingPosition = lcMul31(Match.MovingPosition, Turn);
 				Match.Axis = lcNormalize(lcMul30(Match.Axis, Turn));
 				Match.Transform = Piece->mModelWorld;
-				Match.Connections = lcShadowLibrary::FindConnections(Piece->mPieceData.Get(), Match.Transform, { { Match.TargetPieceData, Match.TargetTransform } });
+				Match.Connections = lcShadowLibrary::FindConnections(Piece->mPieceData.Get(), Match.Transform, View->GetActiveModel()->GetVisibleParts(true));
 			}
 		}
 	}

@@ -93,9 +93,7 @@ struct lcSnapMatch
 	lcVector3 MovingPosition; // The middle of where the shapes overlap, at Transform.
 	lcVector3 Axis; // The way the connected shapes run.
 	float Radius; // Of the target's shape.
-	const lcPieceData* TargetPieceData; // Set by lcShadowLibrary.
-	lcMatrix44 TargetTransform;
-	std::vector<lcSnapConnection> Connections; // All the placement makes with the target, this one included.
+	std::vector<lcSnapConnection> Connections; // All the placement makes, this one included.
 };
 
 // A piece's solid part, in its coordinates: its bounding box without the studs on its outside,
@@ -104,6 +102,14 @@ struct lcSnapBody
 {
 	lcBoundingBox Box;
 	std::vector<lcBoundingBox> Free;
+};
+
+// A piece next to where another is placed: it shouldn't be run into, and may connect too.
+struct lcSnapNeighbor
+{
+	const std::vector<lcSnapCylinder>* Cylinders;
+	lcSnapBody Body;
+	lcMatrix44 Transform;
 };
 
 // How connection shapes fit together, on lists of shapes and transforms, wherever the shapes come from.
@@ -116,8 +122,9 @@ public:
 	// Snaps the moving shapes' point closest to GrabPoint (in the moving piece's LeoCAD coordinates)
 	// onto the target's point closest to HitPoint that faces the viewer, in LeoCAD world coordinates.
 	// ReferenceTransform is the moving piece's transform when the drag started. Placements where
-	// MovingBody runs into one of Obstacles (bodies at their transforms) are used only if all do.
-	static std::optional<lcSnapMatch> FindMatch(const std::vector<lcSnapCylinder>& MovingCylinders, const lcMatrix44& ReferenceTransform, const lcVector3& GrabPoint, const std::vector<lcSnapCylinder>& TargetCylinders, const lcMatrix44& TargetTransform, const lcVector3& HitPoint, const lcVector3& ViewDirection, const lcBoundingBox& MovingBody, const std::vector<std::pair<lcSnapBody, lcMatrix44>>& Obstacles);
+	// MovingBody runs into one of Neighbors are used only if all do, and the angle of a round
+	// connection is lined up by the points of the target and of Neighbors.
+	static std::optional<lcSnapMatch> FindMatch(const std::vector<lcSnapCylinder>& MovingCylinders, const lcMatrix44& ReferenceTransform, const lcVector3& GrabPoint, const std::vector<lcSnapCylinder>& TargetCylinders, const lcMatrix44& TargetTransform, const lcVector3& HitPoint, const lcVector3& ViewDirection, const lcBoundingBox& MovingBody, const std::vector<lcSnapNeighbor>& Neighbors);
 	// Connections by which shapes at Transform are attached to any of Others.
 	static std::vector<lcSnapConnection> FindConnections(const std::vector<lcSnapCylinder>& Cylinders, const lcMatrix44& Transform, const std::vector<std::pair<const std::vector<lcSnapCylinder>*, lcMatrix44>>& Others);
 	// A turn (Direction 1 or -1) around a connection that attaches shapes at Transform to Others:
