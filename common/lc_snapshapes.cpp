@@ -199,14 +199,48 @@ std::optional<lcSnapMatch> lcSnapShapes::FindMatch(const std::vector<lcSnapCylin
 				// Quarter turns around the connection axis. A round shape in a round hole may also
 				// keep any angle, but only if the piece already lines up with the connection axis.
 				std::vector<float> Angles = { 0.0f, LC_PI / 2.0f, LC_PI, LC_PI * 1.5f };
+				const bool Round = IsRound(Moving) && IsRound(*Target.Cylinder);
 
-				if (IsRound(Moving) && IsRound(*Target.Cylinder))
+				if (Round)
 				{
 					const lcMatrix33 Turn = lcMul(lcMul(lcMatrix33(MovingFrame), ReferenceRotation), lcMatrix33AffineInverse(lcMatrix33(Target.Frame)));
 
 					if (lcDot(Turn.r[2], lcVector3(0.0f, 0.0f, 1.0f)) > 0.999f)
 						Angles.push_back(atan2f(Turn.r[0][1], Turn.r[0][0]));
+
+					// And the angles that turn another of the moving piece's points onto one of the
+					// target's, so the piece settles where its other points line up too.
+					const lcMatrix44 TargetInverse = lcMatrix44AffineInverse(Target.Frame);
+
+					for (const lcSnapCylinder& OtherMoving : MovingCylinders)
+					{
+						const lcVector3 From = lcMul31(lcMatrix44LDrawToLeoCAD(OtherMoving.Transform).GetTranslation(), MovingInverse);
+						const float FromRadius = lcLength(lcVector3(From[0], From[1], 0.0f));
+
+						if (&OtherMoving == &Moving || FromRadius < 1.0f)
+							continue;
+
+						for (const lcSnapCylinder& OtherTarget : TargetCylinders)
+						{
+							if (&OtherTarget == Target.Cylinder || !AreCompatible(OtherMoving, OtherTarget))
+								continue;
+
+							const lcVector3 To = lcMul31(lcMul(lcMatrix44LDrawToLeoCAD(OtherTarget.Transform), TargetTransform).GetTranslation(), TargetInverse);
+
+							if (fabsf(lcLength(lcVector3(To[0], To[1], 0.0f)) - FromRadius) < 0.5f)
+								Angles.push_back(atan2f(To[1], To[0]) - atan2f(From[1], From[0]));
+						}
+					}
 				}
+
+				struct lcAngleCandidate
+				{
+					lcMatrix44 Placement;
+					bool Interferes;
+					size_t Connections;
+				};
+
+				std::vector<lcAngleCandidate> Candidates;
 
 				for (float Angle : Angles)
 				{
@@ -227,14 +261,36 @@ std::optional<lcSnapMatch> lcSnapShapes::FindMatch(const std::vector<lcSnapCylin
 
 					Placement.SetTranslation(Placement.GetTranslation() + TargetAxis * Shift);
 
-					// Running into another piece counts for more than any distance, so it only wins
-					// when every placement does. A little overlap is allowed, as pieces that touch
-					// share their faces.
+					// A little overlap is allowed, as pieces that touch share their faces.
 					const bool Interferes = std::any_of(Obstacles.begin(), Obstacles.end(), [&MovingBody, &Placement](const std::pair<lcSnapBody, lcMatrix44>& Obstacle)
 					{
 						return DoesBodyBlock(MovingBody, Placement, Obstacle.first, Obstacle.second, 0.5f);
 					});
-					const float PlacementScore = Interferes ? Score + 1000.0f : Score;
+					const size_t Connections = Round ? FindConnections(MovingCylinders, Placement, { { &TargetCylinders, TargetTransform } }).size() : 0;
+
+					Candidates.push_back({ Placement, Interferes, Connections });
+				}
+
+				// A round connection leaves the angle free: use the angles where the most of the
+				// moving piece's points connect, preferring those that run into nothing.
+				if (Round && !Candidates.empty())
+				{
+					const auto Better = [](const lcAngleCandidate& a, const lcAngleCandidate& b)
+					{
+						return a.Interferes != b.Interferes ? !a.Interferes : a.Connections > b.Connections;
+					};
+					const lcAngleCandidate Preferred = *std::min_element(Candidates.begin(), Candidates.end(), Better);
+
+					Candidates.erase(std::remove_if(Candidates.begin(), Candidates.end(), [&Preferred, &Better](const lcAngleCandidate& Candidate) { return Better(Preferred, Candidate); }), Candidates.end());
+				}
+
+				for (const lcAngleCandidate& Candidate : Candidates)
+				{
+					const lcMatrix44& Placement = Candidate.Placement;
+
+					// Running into another piece counts for more than any distance, so it only wins
+					// when every placement does.
+					const float PlacementScore = Candidate.Interferes ? Score + 1000.0f : Score;
 
 					if (PlacementScore > BestScore + 0.5f)
 						continue;
@@ -251,7 +307,7 @@ std::optional<lcSnapMatch> lcSnapShapes::FindMatch(const std::vector<lcSnapCylin
 						BestTrace = PlacementScore < BestScore - 0.5f ? Trace : std::max(BestTrace, Trace);
 						BestScore = std::min(BestScore, PlacementScore);
 						PassBest = lcSnapMatch{ Placement, GetOverlapCenter(Moving, lcMul(MovingFrame, Placement), *Target.Cylinder, Target.Frame), TargetAxis, MaxRadius, nullptr, TargetTransform, {} };
-						PassBestInterferes = Interferes;
+						PassBestInterferes = Candidate.Interferes;
 					}
 				}
 			}
