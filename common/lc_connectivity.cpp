@@ -252,10 +252,16 @@ bool lcConnectivity::AreConnected(const std::vector<std::pair<const std::vector<
 	return false;
 }
 
-std::optional<lcSnapMatch> lcConnectivity::FindMatch(const std::vector<lcConnectionCylinder>& MovingCylinders, const lcMatrix44& ReferenceTransform, const lcVector3& GrabPoint, const std::vector<lcConnectionCylinder>& TargetCylinders, const lcMatrix44& TargetTransform, const lcVector3& HitPoint, const lcVector3& ViewDirection, const lcBoundingBox& MovingBody, const std::vector<std::pair<lcSnapBody, lcMatrix44>>& Obstacles)
+std::optional<lcSnapMatch> lcConnectivity::FindMatch(const std::vector<lcConnectionCylinder>& MovingCylinders, const lcMatrix44& ReferenceTransform, const lcVector3& GrabPoint, const std::vector<lcConnectionCylinder>& TargetCylinders, const lcMatrix44& TargetTransform, const lcVector3& HitPoint, const lcVector3& ViewDirection, const lcBoundingBox& MovingBody, const std::vector<lcSnapNeighbor>& Neighbors)
 {
 	if (MovingCylinders.empty() || TargetCylinders.empty())
 		return std::nullopt;
+
+	// The shapes the moving piece may connect to: the target's and the neighbors'.
+	std::vector<std::pair<const std::vector<lcConnectionCylinder>*, lcMatrix44>> Shapes = { { &TargetCylinders, TargetTransform } };
+
+	for (const lcSnapNeighbor& Neighbor : Neighbors)
+		Shapes.emplace_back(Neighbor.Cylinders, Neighbor.Transform);
 
 	// Snap info is in LDraw coordinates, pieces are in LeoCAD coordinates. In a
 	// converted snap frame the shape runs along local +Z instead of LDraw's -Y.
@@ -357,7 +363,7 @@ std::optional<lcSnapMatch> lcConnectivity::FindMatch(const std::vector<lcConnect
 						Angles.push_back(atan2f(Turn.r[0][1], Turn.r[0][0]));
 
 					// And the angles that turn another of the moving piece's points onto one of the
-					// target's, so the piece settles where its other points line up too.
+					// target's or a neighbor's, so the piece settles where its other points line up too.
 					const lcMatrix44 TargetInverse = lcMatrix44AffineInverse(Target.Frame);
 
 					for (const lcConnectionCylinder& OtherMoving : MovingCylinders)
@@ -368,15 +374,18 @@ std::optional<lcSnapMatch> lcConnectivity::FindMatch(const std::vector<lcConnect
 						if (&OtherMoving == &Moving || FromRadius < 1.0f)
 							continue;
 
-						for (const lcConnectionCylinder& OtherTarget : TargetCylinders)
+						for (const auto& [OtherCylinders, OtherTransform] : Shapes)
 						{
-							if (&OtherTarget == Target.Cylinder || !AreCompatible(OtherMoving, OtherTarget))
-								continue;
+							for (const lcConnectionCylinder& OtherTarget : *OtherCylinders)
+							{
+								if (&OtherTarget == Target.Cylinder || !AreCompatible(OtherMoving, OtherTarget))
+									continue;
 
-							const lcVector3 To = lcMul31(lcMul(lcMatrix44LDrawToLeoCAD(OtherTarget.Transform), TargetTransform).GetTranslation(), TargetInverse);
+								const lcVector3 To = lcMul31(lcMul(lcMatrix44LDrawToLeoCAD(OtherTarget.Transform), OtherTransform).GetTranslation(), TargetInverse);
 
-							if (fabsf(lcLength(lcVector3(To[0], To[1], 0.0f)) - FromRadius) < 0.5f)
-								Angles.push_back(atan2f(To[1], To[0]) - atan2f(From[1], From[0]));
+								if (fabsf(lcLength(lcVector3(To[0], To[1], 0.0f)) - FromRadius) < 0.5f)
+									Angles.push_back(atan2f(To[1], To[0]) - atan2f(From[1], From[0]));
+							}
 						}
 					}
 				}
@@ -416,11 +425,11 @@ std::optional<lcSnapMatch> lcConnectivity::FindMatch(const std::vector<lcConnect
 					Placement.SetTranslation(Placement.GetTranslation() + TargetAxis * Shift);
 
 					// A little overlap is allowed, as pieces that touch share their faces.
-					const bool Interferes = std::any_of(Obstacles.begin(), Obstacles.end(), [&MovingBody, &Placement](const std::pair<lcSnapBody, lcMatrix44>& Obstacle)
+					const bool Interferes = std::any_of(Neighbors.begin(), Neighbors.end(), [&MovingBody, &Placement](const lcSnapNeighbor& Neighbor)
 					{
-						return DoesBodyBlock(MovingBody, Placement, Obstacle.first, Obstacle.second, 0.5f);
+						return DoesBodyBlock(MovingBody, Placement, Neighbor.Body, Neighbor.Transform, 0.5f);
 					});
-					const size_t Connections = Round ? FindConnections(MovingCylinders, Placement, { { &TargetCylinders, TargetTransform } }).size() : 0;
+					const size_t Connections = Round ? FindConnections(MovingCylinders, Placement, Shapes).size() : 0;
 
 					Candidates.push_back({ Placement, Interferes, Connections });
 				}
@@ -460,7 +469,7 @@ std::optional<lcSnapMatch> lcConnectivity::FindMatch(const std::vector<lcConnect
 					{
 						BestTrace = PlacementScore < BestScore - 0.5f ? Trace : std::max(BestTrace, Trace);
 						BestScore = std::min(BestScore, PlacementScore);
-						PassBest = lcSnapMatch{ Placement, GetOverlapCenter(Moving, lcMul(MovingFrame, Placement), *Target.Cylinder, Target.Frame), TargetAxis, MaxRadius, nullptr, TargetTransform, {} };
+						PassBest = lcSnapMatch{ Placement, GetOverlapCenter(Moving, lcMul(MovingFrame, Placement), *Target.Cylinder, Target.Frame), TargetAxis, MaxRadius, {} };
 						PassBestInterferes = Candidate.Interferes;
 					}
 				}
@@ -476,7 +485,7 @@ std::optional<lcSnapMatch> lcConnectivity::FindMatch(const std::vector<lcConnect
 	}
 
 	if (Best)
-		Best->Connections = FindConnections(MovingCylinders, Best->Transform, { { &TargetCylinders, TargetTransform } });
+		Best->Connections = FindConnections(MovingCylinders, Best->Transform, Shapes);
 
 	return Best;
 }
