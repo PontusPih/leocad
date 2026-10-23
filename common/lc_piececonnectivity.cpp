@@ -3,9 +3,9 @@
 #include "lc_shadowlibrary.h"
 #include "lc_piecedata.h"
 
-std::optional<lcMatrix44> lcPieceConnectivity::FindPlacement(const lcPieceData* MovingPieceData, const lcMatrix44& ReferenceTransform, const lcVector3& GrabPoint, const lcPieceData* TargetPieceData, const lcMatrix44& TargetTransform, const lcVector3& HitPoint, const lcVector3& ViewDirection, const std::vector<std::pair<const lcPieceData*, lcMatrix44>>& Others)
+std::optional<lcMatrix44> lcPieceConnectivity::FindPlacement(const lcPieceData* MovingPieceData, const lcMatrix44& ReferenceTransform, bool KeepAngle, const lcVector3& GrabPoint, const lcPieceData* TargetPieceData, const lcMatrix44& TargetTransform, const lcVector3& HitPoint, const lcVector3& ViewDirection, const std::vector<std::pair<const lcPieceData*, lcMatrix44>>& Others)
 {
-	const std::optional<lcSnapMatch> Match = FindMatch(MovingPieceData, ReferenceTransform, GrabPoint, TargetPieceData, TargetTransform, HitPoint, ViewDirection, Others);
+	const std::optional<lcSnapMatch> Match = FindMatch(MovingPieceData, ReferenceTransform, KeepAngle, GrabPoint, TargetPieceData, TargetTransform, HitPoint, ViewDirection, Others);
 
 	if (!Match)
 		return std::nullopt;
@@ -13,7 +13,7 @@ std::optional<lcMatrix44> lcPieceConnectivity::FindPlacement(const lcPieceData* 
 	return Match->Transform;
 }
 
-std::optional<lcSnapMatch> lcPieceConnectivity::FindMatch(const lcPieceData* MovingPieceData, const lcMatrix44& ReferenceTransform, const lcVector3& GrabPoint, const lcPieceData* TargetPieceData, const lcMatrix44& TargetTransform, const lcVector3& HitPoint, const lcVector3& ViewDirection, const std::vector<std::pair<const lcPieceData*, lcMatrix44>>& Others)
+std::optional<lcSnapMatch> lcPieceConnectivity::FindMatch(const lcPieceData* MovingPieceData, const lcMatrix44& ReferenceTransform, bool KeepAngle, const lcVector3& GrabPoint, const lcPieceData* TargetPieceData, const lcMatrix44& TargetTransform, const lcVector3& HitPoint, const lcVector3& ViewDirection, const std::vector<std::pair<const lcPieceData*, lcMatrix44>>& Others)
 {
 	if (!MovingPieceData || !TargetPieceData || MovingPieceData->IsModel() || TargetPieceData->IsModel())
 		return std::nullopt;
@@ -38,7 +38,7 @@ std::optional<lcSnapMatch> lcPieceConnectivity::FindMatch(const lcPieceData* Mov
 		}
 	}
 
-	return lcConnectivity::FindMatch(MovingCylinders, ReferenceTransform, GrabPoint, lcShadowLibrary::GetCylinders(TargetPieceData->mFileName), TargetTransform, HitPoint, ViewDirection, lcConnectivity::GetBody(MovingBox, MovingCylinders).Box, Neighbors);
+	return lcConnectivity::FindMatch(MovingCylinders, ReferenceTransform, KeepAngle, GrabPoint, lcShadowLibrary::GetCylinders(TargetPieceData->mFileName), TargetTransform, HitPoint, ViewDirection, lcConnectivity::GetBody(MovingBox, MovingCylinders).Box, Neighbors);
 }
 
 std::vector<std::pair<const std::vector<lcConnectionCylinder>*, lcMatrix44>> lcPieceConnectivity::GetPieceShapes(const std::vector<std::pair<const lcPieceData*, lcMatrix44>>& Pieces)

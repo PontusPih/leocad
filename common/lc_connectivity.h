@@ -133,8 +133,9 @@ public:
 	// onto the target's point closest to HitPoint that faces the viewer, in LeoCAD world coordinates.
 	// ReferenceTransform is the moving piece's transform when the drag started. Placements where
 	// MovingBody runs into one of Neighbors are used only if all do, and the angle of a round
-	// connection is lined up by the points of the target and of Neighbors.
-	static std::optional<lcSnapMatch> FindMatch(const std::vector<lcConnectionCylinder>& MovingCylinders, const lcMatrix44& ReferenceTransform, const lcVector3& GrabPoint, const std::vector<lcConnectionCylinder>& TargetCylinders, const lcMatrix44& TargetTransform, const lcVector3& HitPoint, const lcVector3& ViewDirection, const lcBoundingBox& MovingBody, const std::vector<lcSnapNeighbor>& Neighbors);
+	// connection is lined up by the points of the target and of Neighbors, unless KeepAngle asks
+	// to keep the angle of ReferenceTransform.
+	static std::optional<lcSnapMatch> FindMatch(const std::vector<lcConnectionCylinder>& MovingCylinders, const lcMatrix44& ReferenceTransform, bool KeepAngle, const lcVector3& GrabPoint, const std::vector<lcConnectionCylinder>& TargetCylinders, const lcMatrix44& TargetTransform, const lcVector3& HitPoint, const lcVector3& ViewDirection, const lcBoundingBox& MovingBody, const std::vector<lcSnapNeighbor>& Neighbors);
 	// Connections by which shapes at Transform are attached to any of Others.
 	static std::vector<lcSnapConnection> FindConnections(const std::vector<lcConnectionCylinder>& Cylinders, const lcMatrix44& Transform, const std::vector<std::pair<const std::vector<lcConnectionCylinder>*, lcMatrix44>>& Others);
 	// A turn (Direction 1 or -1) around a connection that attaches shapes at Transform to Others:
