@@ -419,7 +419,8 @@ std::optional<std::pair<lcVector3, lcMatrix33>> lcSnapShapes::GetConnectionTurn(
 	if (!Pivot->Round)
 		return std::make_pair(Pivot->Position, QuarterTurn);
 
-	// Around a round connection, the angles that bring another of the shapes onto one of Others'.
+	// Around a round connection, stop at the angles that bring another of the shapes onto one of
+	// Others' if they come before a quarter turn.
 	const lcVector3 PivotPosition = Pivot->Position;
 	const lcVector3 PivotAxis = Pivot->Axis;
 	const auto AroundPivot = [&PivotPosition, &PivotAxis](const lcVector3& Point)
@@ -428,8 +429,8 @@ std::optional<std::pair<lcVector3, lcMatrix33>> lcSnapShapes::GetConnectionTurn(
 		return Offset - PivotAxis * lcDot(Offset, PivotAxis);
 	};
 
-	std::optional<lcMatrix33> Best;
-	float BestTurn = FLT_MAX;
+	lcMatrix33 Best = QuarterTurn;
+	float BestTurn = LC_PI / 2.0f;
 
 	for (const lcSnapCylinder& Cylinder : Cylinders)
 	{
@@ -467,7 +468,7 @@ std::optional<std::pair<lcVector3, lcMatrix33>> lcSnapShapes::GetConnectionTurn(
 
 				const lcMatrix44 Turned = lcMul(lcMul(lcMul(Transform, lcMatrix44Translation(-PivotPosition)), lcMatrix44(Rotation, lcVector3(0.0f, 0.0f, 0.0f))), lcMatrix44Translation(PivotPosition));
 
-				if (FindConnections(Cylinders, Turned, Others).size() > Connections.size())
+				if (FindConnections(Cylinders, Turned, Others).size() > 1)
 				{
 					Best = Rotation;
 					BestTurn = Turn;
@@ -476,7 +477,7 @@ std::optional<std::pair<lcVector3, lcMatrix33>> lcSnapShapes::GetConnectionTurn(
 		}
 	}
 
-	return std::make_pair(Pivot->Position, Best ? *Best : QuarterTurn);
+	return std::make_pair(Pivot->Position, Best);
 }
 
 lcSnapBody lcSnapShapes::GetBody(const lcBoundingBox& BoundingBox, const std::vector<lcSnapCylinder>& Cylinders)
