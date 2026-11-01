@@ -260,8 +260,10 @@ std::optional<lcSnapMatch> lcConnectivity::FindMatch(const std::vector<lcConnect
 	// The shapes the moving piece may connect to: the target's and the neighbors'.
 	std::vector<std::pair<const std::vector<lcConnectionCylinder>*, lcMatrix44>> Shapes = { { &TargetCylinders, TargetTransform } };
 
+	// The target is usually one of the neighbors too.
 	for (const lcSnapNeighbor& Neighbor : Neighbors)
-		Shapes.emplace_back(Neighbor.Cylinders, Neighbor.Transform);
+		if (Neighbor.Cylinders != &TargetCylinders || !(Neighbor.Transform == TargetTransform))
+			Shapes.emplace_back(Neighbor.Cylinders, Neighbor.Transform);
 
 	const std::vector<lcPlacedShape> PlacedShapes = PlaceShapes(Shapes);
 
