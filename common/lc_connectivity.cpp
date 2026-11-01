@@ -551,11 +551,11 @@ lcConnectivity::lcPlacedShapes lcConnectivity::PlaceShapes(const std::vector<std
 			const lcMatrix44 Frame = lcMul(lcMatrix44LDrawToLeoCAD(Cylinder.Transform), Transform);
 			const lcVector3 Axis = lcNormalize(lcMul30(lcVector3(0.0f, 0.0f, 1.0f), Frame));
 			const size_t Index = PlacedShapes.Shapes.size();
-			int Direction, U, V;
+			int Direction, U, MaxU, V, MaxV;
 
 			PlacedShapes.Shapes.push_back({ &Cylinder, Frame, Axis });
 
-			if (GetLineCell(Frame.GetTranslation(), Axis, Direction, U, V))
+			if (GetLineCells(Frame.GetTranslation(), Axis, 0.0f, Direction, U, MaxU, V, MaxV))
 				PlacedShapes.Lines[GetLineKey(Direction, U, V)].push_back(Index);
 			else
 				PlacedShapes.Slanted.push_back(Index);
@@ -565,11 +565,10 @@ lcConnectivity::lcPlacedShapes lcConnectivity::PlaceShapes(const std::vector<std
 	return PlacedShapes;
 }
 
-// The main direction an axis runs along (0 to 5), and the cell of the plane across it that its
-// line goes through; false if the axis runs along none of the main directions. The cells are
-// wider than the 0.5 LDU a connected shape may be off the line, which leaves room for axes a
-// little off their main direction.
-bool lcConnectivity::GetLineCell(const lcVector3& Position, const lcVector3& Axis, int& Direction, int& U, int& V)
+// The main direction an axis runs along (0 to 5), and the cells of the plane across it within
+// Margin of where its line goes through; false if the axis runs along none of the main
+// directions.
+bool lcConnectivity::GetLineCells(const lcVector3& Position, const lcVector3& Axis, float Margin, int& Direction, int& MinU, int& MaxU, int& MinV, int& MaxV)
 {
 	constexpr float CellSize = 4.0f;
 	int Main = 0;
@@ -581,9 +580,14 @@ bool lcConnectivity::GetLineCell(const lcVector3& Position, const lcVector3& Axi
 	if (fabsf(Axis[Main]) < 0.999999f)
 		return false;
 
+	const float U = Position[(Main + 1) % 3];
+	const float V = Position[(Main + 2) % 3];
+
 	Direction = Main * 2 + (Axis[Main] < 0.0f ? 1 : 0);
-	U = (int)floorf(Position[(Main + 1) % 3] / CellSize);
-	V = (int)floorf(Position[(Main + 2) % 3] / CellSize);
+	MinU = (int)floorf((U - Margin) / CellSize);
+	MaxU = (int)floorf((U + Margin) / CellSize);
+	MinV = (int)floorf((V - Margin) / CellSize);
+	MaxV = (int)floorf((V + Margin) / CellSize);
 
 	return true;
 }
@@ -603,6 +607,7 @@ std::vector<lcSnapConnection> lcConnectivity::FindConnections(const std::vector<
 	std::vector<lcSnapConnection> Connections;
 	const lcVector3 ShapeAxis(0.0f, 0.0f, 1.0f);
 	std::vector<size_t> Nearby;
+	std::vector<size_t> AllShapes;
 
 	for (const lcConnectionCylinder& Cylinder : Cylinders)
 	{
@@ -610,36 +615,56 @@ std::vector<lcSnapConnection> lcConnectivity::FindConnections(const std::vector<
 		const lcVector3 Axis = lcNormalize(lcMul30(ShapeAxis, Frame));
 		std::optional<lcVector3> Center;
 		bool Round = false;
-		int Direction, U, V;
+		int Direction, MinU, MaxU, MinV, MaxV;
+		const std::vector<size_t>* Candidates = &Nearby;
 
 		// The shapes on lines near this one's, and the slanted ones, in the order of Others, so
-		// the first that connects is the same as when going through all of them.
-		if (GetLineCell(Frame.GetTranslation(), Axis, Direction, U, V))
+		// the first that connects is the same as when going through all of them. The margin is
+		// the 0.5 LDU a connected shape may be off the line, and as much again for axes a little
+		// off their main direction.
+		if (GetLineCells(Frame.GetTranslation(), Axis, 1.0f, Direction, MinU, MaxU, MinV, MaxV))
 		{
-			Nearby = Others.Slanted;
-
-			for (int OffsetU = -1; OffsetU <= 1; OffsetU++)
+			if (MinU == MaxU && MinV == MaxV && Others.Slanted.empty())
 			{
-				for (int OffsetV = -1; OffsetV <= 1; OffsetV++)
-				{
-					const auto Line = Others.Lines.find(GetLineKey(Direction, U + OffsetU, V + OffsetV));
+				const auto Line = Others.Lines.find(GetLineKey(Direction, MinU, MinV));
 
-					if (Line != Others.Lines.end())
-						Nearby.insert(Nearby.end(), Line->second.begin(), Line->second.end());
-				}
+				if (Line == Others.Lines.end())
+					continue;
+
+				Candidates = &Line->second;
 			}
+			else
+			{
+				Nearby = Others.Slanted;
 
-			std::sort(Nearby.begin(), Nearby.end());
+				for (int U = MinU; U <= MaxU; U++)
+				{
+					for (int V = MinV; V <= MaxV; V++)
+					{
+						const auto Line = Others.Lines.find(GetLineKey(Direction, U, V));
+
+						if (Line != Others.Lines.end())
+							Nearby.insert(Nearby.end(), Line->second.begin(), Line->second.end());
+					}
+				}
+
+				std::sort(Nearby.begin(), Nearby.end());
+			}
 		}
 		else
 		{
-			Nearby.resize(Others.Shapes.size());
+			if (AllShapes.size() != Others.Shapes.size())
+			{
+				AllShapes.resize(Others.Shapes.size());
 
-			for (size_t Index = 0; Index < Nearby.size(); Index++)
-				Nearby[Index] = Index;
+				for (size_t Index = 0; Index < AllShapes.size(); Index++)
+					AllShapes[Index] = Index;
+			}
+
+			Candidates = &AllShapes;
 		}
 
-		for (size_t Index : Nearby)
+		for (size_t Index : *Candidates)
 		{
 			const lcPlacedShape& Other = Others.Shapes[Index];
 			const lcConnectionCylinder& OtherCylinder = *Other.Cylinder;
