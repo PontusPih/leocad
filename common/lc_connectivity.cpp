@@ -263,6 +263,8 @@ std::optional<lcSnapMatch> lcConnectivity::FindMatch(const std::vector<lcConnect
 	for (const lcSnapNeighbor& Neighbor : Neighbors)
 		Shapes.emplace_back(Neighbor.Cylinders, Neighbor.Transform);
 
+	const std::vector<lcPlacedShape> PlacedShapes = PlaceShapes(Shapes);
+
 	// Snap info is in LDraw coordinates, pieces are in LeoCAD coordinates. In a
 	// converted snap frame the shape runs along local +Z instead of LDraw's -Y.
 	const lcVector3 ShapeAxis(0.0f, 0.0f, 1.0f);
@@ -447,7 +449,7 @@ std::optional<lcSnapMatch> lcConnectivity::FindMatch(const std::vector<lcConnect
 					{
 						return DoesBodyBlock(MovingBody, Placement, Neighbor.Body, Neighbor.Transform, 0.5f);
 					});
-					const size_t Connections = Round ? FindConnections(MovingCylinders, Placement, Shapes).size() : 0;
+					const size_t Connections = Round ? FindConnections(MovingCylinders, Placement, PlacedShapes).size() : 0;
 
 					Candidates.push_back({ Placement, Interferes, Connections, HasKeptAngle && AngleIndex == 4 });
 				}
@@ -508,12 +510,33 @@ std::optional<lcSnapMatch> lcConnectivity::FindMatch(const std::vector<lcConnect
 	}
 
 	if (Best)
-		Best->Connections = FindConnections(MovingCylinders, Best->Transform, Shapes);
+		Best->Connections = FindConnections(MovingCylinders, Best->Transform, PlacedShapes);
 
 	return Best;
 }
 
+std::vector<lcConnectivity::lcPlacedShape> lcConnectivity::PlaceShapes(const std::vector<std::pair<const std::vector<lcConnectionCylinder>*, lcMatrix44>>& Shapes)
+{
+	std::vector<lcPlacedShape> PlacedShapes;
+
+	for (const auto& [Cylinders, Transform] : Shapes)
+	{
+		for (const lcConnectionCylinder& Cylinder : *Cylinders)
+		{
+			const lcMatrix44 Frame = lcMul(lcMatrix44LDrawToLeoCAD(Cylinder.Transform), Transform);
+			PlacedShapes.push_back({ &Cylinder, Frame, lcNormalize(lcMul30(lcVector3(0.0f, 0.0f, 1.0f), Frame)) });
+		}
+	}
+
+	return PlacedShapes;
+}
+
 std::vector<lcSnapConnection> lcConnectivity::FindConnections(const std::vector<lcConnectionCylinder>& Cylinders, const lcMatrix44& Transform, const std::vector<std::pair<const std::vector<lcConnectionCylinder>*, lcMatrix44>>& Others)
+{
+	return FindConnections(Cylinders, Transform, PlaceShapes(Others));
+}
+
+std::vector<lcSnapConnection> lcConnectivity::FindConnections(const std::vector<lcConnectionCylinder>& Cylinders, const lcMatrix44& Transform, const std::vector<lcPlacedShape>& Others)
 {
 	std::vector<lcSnapConnection> Connections;
 	const lcVector3 ShapeAxis(0.0f, 0.0f, 1.0f);
@@ -525,39 +548,32 @@ std::vector<lcSnapConnection> lcConnectivity::FindConnections(const std::vector<
 		std::optional<lcVector3> Center;
 		bool Round = false;
 
-		for (const auto& [OtherCylinders, OtherTransform] : Others)
+		for (const lcPlacedShape& Other : Others)
 		{
-			for (const lcConnectionCylinder& OtherCylinder : *OtherCylinders)
+			const lcConnectionCylinder& OtherCylinder = *Other.Cylinder;
+			const lcMatrix44& OtherFrame = Other.Frame;
+
+			// On the same axis, and seated as deep as the shapes allow. The position tests come
+			// before AreCompatible(): they rule out most shapes and cost less.
+			if (lcDot(Other.Axis, Axis) < 0.99f)
+				continue;
+
+			const lcVector3 Offset = Frame.GetTranslation() - OtherFrame.GetTranslation();
+			const float Along = lcDot(Offset, Axis);
+
+			if (lcLength(Offset - Axis * Along) > 0.5f || !AreCompatible(Cylinder, OtherCylinder))
+				continue;
+
+			const bool IsMale = Cylinder.Gender == lcConnectionGender::Male;
+			const std::vector<std::pair<float, float>> InsertRanges = IsMale ? GetInsertRanges(Cylinder, OtherCylinder) : GetInsertRanges(OtherCylinder, Cylinder);
+			const float MaleOffset = IsMale ? Along : -Along;
+
+			if (std::any_of(InsertRanges.begin(), InsertRanges.end(), [MaleOffset](const std::pair<float, float>& Range) { return MaleOffset > Range.first - 0.5f && MaleOffset < Range.second + 0.5f; }))
 			{
-				if (!AreCompatible(Cylinder, OtherCylinder))
-					continue;
-
-				const lcMatrix44 OtherFrame = lcMul(lcMatrix44LDrawToLeoCAD(OtherCylinder.Transform), OtherTransform);
-
-				if (lcDot(lcNormalize(lcMul30(ShapeAxis, OtherFrame)), Axis) < 0.99f)
-					continue;
-
-				// On the same axis, and seated as deep as the shapes allow.
-				const lcVector3 Offset = Frame.GetTranslation() - OtherFrame.GetTranslation();
-				const float Along = lcDot(Offset, Axis);
-
-				if (lcLength(Offset - Axis * Along) > 0.5f)
-					continue;
-
-				const bool IsMale = Cylinder.Gender == lcConnectionGender::Male;
-				const std::vector<std::pair<float, float>> InsertRanges = IsMale ? GetInsertRanges(Cylinder, OtherCylinder) : GetInsertRanges(OtherCylinder, Cylinder);
-				const float MaleOffset = IsMale ? Along : -Along;
-
-				if (std::any_of(InsertRanges.begin(), InsertRanges.end(), [MaleOffset](const std::pair<float, float>& Range) { return MaleOffset > Range.first - 0.5f && MaleOffset < Range.second + 0.5f; }))
-				{
-					Center = GetOverlapCenter(Cylinder, Frame, OtherCylinder, OtherFrame);
-					Round = IsRound(Cylinder) && IsRound(OtherCylinder);
-					break;
-				}
-			}
-
-			if (Center)
+				Center = GetOverlapCenter(Cylinder, Frame, OtherCylinder, OtherFrame);
+				Round = IsRound(Cylinder) && IsRound(OtherCylinder);
 				break;
+			}
 		}
 
 		if (Center)
@@ -569,7 +585,8 @@ std::vector<lcSnapConnection> lcConnectivity::FindConnections(const std::vector<
 
 std::optional<std::pair<lcVector3, lcMatrix33>> lcConnectivity::GetConnectionTurn(const std::vector<lcConnectionCylinder>& Cylinders, const lcMatrix44& Transform, const lcVector3& Center, const std::vector<std::pair<const std::vector<lcConnectionCylinder>*, lcMatrix44>>& Others, int Direction, const std::optional<std::array<lcVector3, 2>>& PointerRay)
 {
-	const std::vector<lcSnapConnection> Connections = FindConnections(Cylinders, Transform, Others);
+	const std::vector<lcPlacedShape> PlacedOthers = PlaceShapes(Others);
+	const std::vector<lcSnapConnection> Connections = FindConnections(Cylinders, Transform, PlacedOthers);
 
 	if (Connections.empty())
 		return std::nullopt;
@@ -645,7 +662,7 @@ std::optional<std::pair<lcVector3, lcMatrix33>> lcConnectivity::GetConnectionTur
 
 				const lcMatrix44 Turned = lcMul(lcMul(lcMul(Transform, lcMatrix44Translation(-PivotPosition)), lcMatrix44(Rotation, lcVector3(0.0f, 0.0f, 0.0f))), lcMatrix44Translation(PivotPosition));
 
-				if (FindConnections(Cylinders, Turned, Others).size() > 1)
+				if (FindConnections(Cylinders, Turned, PlacedOthers).size() > 1)
 				{
 					Best = Rotation;
 					BestTurn = Turn;

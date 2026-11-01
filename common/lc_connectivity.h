@@ -156,6 +156,16 @@ public:
 	static float GetDeterminant(const lcMatrix44& m);
 
 private:
+	// A shape at its frame in LeoCAD world coordinates, worked out once for repeated searches.
+	struct lcPlacedShape
+	{
+		const lcConnectionCylinder* Cylinder;
+		lcMatrix44 Frame;
+		lcVector3 Axis;
+	};
+
+	static std::vector<lcPlacedShape> PlaceShapes(const std::vector<std::pair<const std::vector<lcConnectionCylinder>*, lcMatrix44>>& Shapes);
+	static std::vector<lcSnapConnection> FindConnections(const std::vector<lcConnectionCylinder>& Cylinders, const lcMatrix44& Transform, const std::vector<lcPlacedShape>& Others);
 	static bool AreSectionsCompatible(const lcConnectionSection& Male, const lcConnectionSection& Female);
 	static bool FitsAt(const lcConnectionCylinder& Male, const lcConnectionCylinder& Female, float Offset);
 	static bool IsSeated(const lcConnectionCylinder& Cylinder, const lcMatrix44& Frame, const lcConnectionCylinder& Other, const lcMatrix44& OtherFrame);
