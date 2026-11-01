@@ -174,7 +174,7 @@ private:
 	};
 
 	static lcPlacedShapes PlaceShapes(const std::vector<std::pair<const std::vector<lcConnectionCylinder>*, lcMatrix44>>& Shapes);
-	static bool GetLineCell(const lcVector3& Position, const lcVector3& Axis, int& Direction, int& U, int& V);
+	static bool GetLineCells(const lcVector3& Position, const lcVector3& Axis, float Margin, int& Direction, int& MinU, int& MaxU, int& MinV, int& MaxV);
 	static quint64 GetLineKey(int Direction, int U, int V);
 	static std::vector<lcSnapConnection> FindConnections(const std::vector<lcConnectionCylinder>& Cylinders, const lcMatrix44& Transform, const lcPlacedShapes& Others);
 	static bool AreSectionsCompatible(const lcConnectionSection& Male, const lcConnectionSection& Female);
