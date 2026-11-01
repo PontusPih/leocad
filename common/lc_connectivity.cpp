@@ -370,6 +370,19 @@ std::optional<lcSnapMatch> lcConnectivity::FindMatch(const std::vector<lcConnect
 					// target's or a neighbor's, so the piece settles where its other points line up too.
 					const lcMatrix44 TargetInverse = lcMatrix44AffineInverse(Target.Frame);
 
+					// On a grid of points most of these angles are the same; each is tried once.
+					const auto AddAngle = [&Angles](float Angle)
+					{
+						const bool Known = std::any_of(Angles.begin(), Angles.end(), [Angle](float Other)
+						{
+							const float Difference = fmodf(fabsf(Angle - Other), LC_2PI);
+							return Difference < 0.001f || Difference > LC_2PI - 0.001f;
+						});
+
+						if (!Known)
+							Angles.push_back(Angle);
+					};
+
 					for (const lcConnectionCylinder& OtherMoving : MovingCylinders)
 					{
 						const lcVector3 From = lcMul31(lcMatrix44LDrawToLeoCAD(OtherMoving.Transform).GetTranslation(), MovingInverse);
@@ -388,7 +401,7 @@ std::optional<lcSnapMatch> lcConnectivity::FindMatch(const std::vector<lcConnect
 								const lcVector3 To = lcMul31(lcMul(lcMatrix44LDrawToLeoCAD(OtherTarget.Transform), OtherTransform).GetTranslation(), TargetInverse);
 
 								if (fabsf(lcLength(lcVector3(To[0], To[1], 0.0f)) - FromRadius) < 0.5f)
-									Angles.push_back(atan2f(To[1], To[0]) - atan2f(From[1], From[0]));
+									AddAngle(atan2f(To[1], To[0]) - atan2f(From[1], From[0]));
 							}
 						}
 					}
