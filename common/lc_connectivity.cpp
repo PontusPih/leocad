@@ -316,189 +316,204 @@ std::optional<lcSnapMatch> lcConnectivity::FindMatch(const std::vector<lcConnect
 		float BestScore = FLT_MAX;
 		float BestTrace = -FLT_MAX;
 
+		// The pairs of the target's and the moving piece's shapes, closest to the cursor and the grab
+		// point first: once a pair gives a placement, pairs further away can't beat it.
+		struct lcShapePair
+		{
+			const lcTargetPoint* Target;
+			const lcConnectionCylinder* Moving;
+			float Score;
+		};
+
+		std::vector<lcShapePair> Pairs;
+
 		for (const lcTargetPoint& Target : Targets)
 		{
 			if (Target.Distance > NearestDistance + 8.0f)
 				continue;
 
-			const float MaxRadius = Target.Cylinder->GetRadius();
-
-			if ((MaxRadius < 5.0f) != (Pass == 1))
+			if ((Target.Cylinder->GetRadius() < 5.0f) != (Pass == 1))
 				continue;
 
+			for (const lcConnectionCylinder& Moving : MovingCylinders)
+				if (AreCompatible(Moving, *Target.Cylinder))
+					Pairs.push_back({ &Target, &Moving, Target.Distance + GetDistanceToShape(Moving, lcMatrix44LDrawToLeoCAD(Moving.Transform), GrabPoint) });
+		}
+
+		std::stable_sort(Pairs.begin(), Pairs.end(), [](const lcShapePair& a, const lcShapePair& b) { return a.Score < b.Score; });
+
+		for (const lcShapePair& Pair : Pairs)
+		{
+			if (Pair.Score > BestScore + 0.5f)
+				break;
+
+			const lcTargetPoint& Target = *Pair.Target;
+			const lcConnectionCylinder& Moving = *Pair.Moving;
+			const float Score = Pair.Score;
+			const float MaxRadius = Target.Cylinder->GetRadius();
 			const lcVector3 TargetAxis = lcNormalize(lcMul30(ShapeAxis, Target.Frame));
 
-			for (const lcConnectionCylinder& Moving : MovingCylinders)
+			const bool MovingIsMale = Moving.Gender == lcConnectionGender::Male;
+			const std::vector<std::pair<float, float>> InsertRanges = MovingIsMale ? GetInsertRanges(Moving, *Target.Cylinder) : GetInsertRanges(*Target.Cylinder, Moving);
+
+			if (InsertRanges.empty())
+				continue;
+
+			// How far the moving piece may be shifted along the axis from the aligned positions.
+			std::vector<std::pair<float, float>> ShiftRanges;
+
+			for (const std::pair<float, float>& Range : InsertRanges)
+				ShiftRanges.emplace_back(MovingIsMale ? Range.first : -Range.second, MovingIsMale ? Range.second : -Range.first);
+
+			const bool Slide = Moving.Slide || Target.Cylinder->Slide;
+
+			const lcMatrix44 MovingFrame = lcMatrix44LDrawToLeoCAD(Moving.Transform);
+			const lcMatrix44 MovingInverse = lcMatrix44AffineInverse(MovingFrame);
+
+			// Quarter turns around the connection axis. A round shape in a round hole may also
+			// keep any angle, but only if the piece already lines up with the connection axis.
+			std::vector<float> Angles = { 0.0f, LC_PI / 2.0f, LC_PI, LC_PI * 1.5f };
+			const bool Round = IsRound(Moving) && IsRound(*Target.Cylinder);
+			bool HasKeptAngle = false;
+
+			if (Round)
 			{
-				if (!AreCompatible(Moving, *Target.Cylinder))
-					continue;
+				const lcMatrix33 Turn = lcMul(lcMul(lcMatrix33(MovingFrame), ReferenceRotation), lcMatrix33AffineInverse(lcMatrix33(Target.Frame)));
 
-				const bool MovingIsMale = Moving.Gender == lcConnectionGender::Male;
-				const std::vector<std::pair<float, float>> InsertRanges = MovingIsMale ? GetInsertRanges(Moving, *Target.Cylinder) : GetInsertRanges(*Target.Cylinder, Moving);
-
-				if (InsertRanges.empty())
-					continue;
-
-				// How far the moving piece may be shifted along the axis from the aligned positions.
-				std::vector<std::pair<float, float>> ShiftRanges;
-
-				for (const std::pair<float, float>& Range : InsertRanges)
-					ShiftRanges.emplace_back(MovingIsMale ? Range.first : -Range.second, MovingIsMale ? Range.second : -Range.first);
-
-				const bool Slide = Moving.Slide || Target.Cylinder->Slide;
-
-				const lcMatrix44 MovingFrame = lcMatrix44LDrawToLeoCAD(Moving.Transform);
-				const lcMatrix44 MovingInverse = lcMatrix44AffineInverse(MovingFrame);
-				const float Score = Target.Distance + GetDistanceToShape(Moving, MovingFrame, GrabPoint);
-
-				if (Score > BestScore + 0.5f)
-					continue;
-
-				// Quarter turns around the connection axis. A round shape in a round hole may also
-				// keep any angle, but only if the piece already lines up with the connection axis.
-				std::vector<float> Angles = { 0.0f, LC_PI / 2.0f, LC_PI, LC_PI * 1.5f };
-				const bool Round = IsRound(Moving) && IsRound(*Target.Cylinder);
-				bool HasKeptAngle = false;
-
-				if (Round)
+				if (lcDot(Turn.r[2], lcVector3(0.0f, 0.0f, 1.0f)) > 0.999f)
 				{
-					const lcMatrix33 Turn = lcMul(lcMul(lcMatrix33(MovingFrame), ReferenceRotation), lcMatrix33AffineInverse(lcMatrix33(Target.Frame)));
+					Angles.push_back(atan2f(Turn.r[0][1], Turn.r[0][0]));
+					HasKeptAngle = true;
+				}
 
-					if (lcDot(Turn.r[2], lcVector3(0.0f, 0.0f, 1.0f)) > 0.999f)
+				// And the angles that turn another of the moving piece's points onto one of the
+				// target's or a neighbor's, so the piece settles where its other points line up too.
+				const lcMatrix44 TargetInverse = lcMatrix44AffineInverse(Target.Frame);
+
+				// On a grid of points most of these angles are the same; each is tried once.
+				const auto AddAngle = [&Angles](float Angle)
+				{
+					const bool Known = std::any_of(Angles.begin(), Angles.end(), [Angle](float Other)
 					{
-						Angles.push_back(atan2f(Turn.r[0][1], Turn.r[0][0]));
-						HasKeptAngle = true;
-					}
+						const float Difference = fmodf(fabsf(Angle - Other), LC_2PI);
+						return Difference < 0.001f || Difference > LC_2PI - 0.001f;
+					});
 
-					// And the angles that turn another of the moving piece's points onto one of the
-					// target's or a neighbor's, so the piece settles where its other points line up too.
-					const lcMatrix44 TargetInverse = lcMatrix44AffineInverse(Target.Frame);
+					if (!Known)
+						Angles.push_back(Angle);
+				};
 
-					// On a grid of points most of these angles are the same; each is tried once.
-					const auto AddAngle = [&Angles](float Angle)
+				for (const lcConnectionCylinder& OtherMoving : MovingCylinders)
+				{
+					const lcVector3 From = lcMul31(lcMatrix44LDrawToLeoCAD(OtherMoving.Transform).GetTranslation(), MovingInverse);
+					const float FromRadius = lcLength(lcVector3(From[0], From[1], 0.0f));
+
+					if (&OtherMoving == &Moving || FromRadius < 1.0f)
+						continue;
+
+					for (const auto& [OtherCylinders, OtherTransform] : Shapes)
 					{
-						const bool Known = std::any_of(Angles.begin(), Angles.end(), [Angle](float Other)
+						for (const lcConnectionCylinder& OtherTarget : *OtherCylinders)
 						{
-							const float Difference = fmodf(fabsf(Angle - Other), LC_2PI);
-							return Difference < 0.001f || Difference > LC_2PI - 0.001f;
-						});
+							if (&OtherTarget == Target.Cylinder || !AreCompatible(OtherMoving, OtherTarget))
+								continue;
 
-						if (!Known)
-							Angles.push_back(Angle);
-					};
+							const lcVector3 To = lcMul31(lcMul(lcMatrix44LDrawToLeoCAD(OtherTarget.Transform), OtherTransform).GetTranslation(), TargetInverse);
 
-					for (const lcConnectionCylinder& OtherMoving : MovingCylinders)
-					{
-						const lcVector3 From = lcMul31(lcMatrix44LDrawToLeoCAD(OtherMoving.Transform).GetTranslation(), MovingInverse);
-						const float FromRadius = lcLength(lcVector3(From[0], From[1], 0.0f));
-
-						if (&OtherMoving == &Moving || FromRadius < 1.0f)
-							continue;
-
-						for (const auto& [OtherCylinders, OtherTransform] : Shapes)
-						{
-							for (const lcConnectionCylinder& OtherTarget : *OtherCylinders)
-							{
-								if (&OtherTarget == Target.Cylinder || !AreCompatible(OtherMoving, OtherTarget))
-									continue;
-
-								const lcVector3 To = lcMul31(lcMul(lcMatrix44LDrawToLeoCAD(OtherTarget.Transform), OtherTransform).GetTranslation(), TargetInverse);
-
-								if (fabsf(lcLength(lcVector3(To[0], To[1], 0.0f)) - FromRadius) < 0.5f)
-									AddAngle(atan2f(To[1], To[0]) - atan2f(From[1], From[0]));
-							}
+							if (fabsf(lcLength(lcVector3(To[0], To[1], 0.0f)) - FromRadius) < 0.5f)
+								AddAngle(atan2f(To[1], To[0]) - atan2f(From[1], From[0]));
 						}
 					}
 				}
+			}
 
-				struct lcAngleCandidate
+			struct lcAngleCandidate
+			{
+				lcMatrix44 Placement;
+				bool Interferes;
+				size_t Connections;
+				bool Kept;
+			};
+
+			std::vector<lcAngleCandidate> Candidates;
+
+			for (size_t AngleIndex = 0; AngleIndex < Angles.size(); AngleIndex++)
+			{
+				lcMatrix44 Placement = lcMul(lcMul(MovingInverse, lcMatrix44RotationZ(Angles[AngleIndex])), Target.Frame);
+
+				if (!IsRigid(Placement))
+					continue;
+
+				// Along the axis, in the allowed range nearest the cursor, follow the cursor where the
+				// shapes can slide; otherwise take the end of the range nearer to it.
+				const float CursorShift = lcDot(HitPoint - lcMul31(GrabPoint, Placement), TargetAxis);
+				const std::pair<float, float>& ShiftRange = *std::min_element(ShiftRanges.begin(), ShiftRanges.end(), [CursorShift](const std::pair<float, float>& a, const std::pair<float, float>& b)
 				{
-					lcMatrix44 Placement;
-					bool Interferes;
-					size_t Connections;
-					bool Kept;
+					return fabsf(CursorShift - lcClamp(CursorShift, a.first, a.second)) < fabsf(CursorShift - lcClamp(CursorShift, b.first, b.second));
+				});
+				const float ShiftLow = ShiftRange.first;
+				const float ShiftHigh = ShiftRange.second;
+				float Shift;
+
+				if (Slide)
+					Shift = lcClamp(CursorShift, ShiftLow, ShiftHigh);
+				else
+					Shift = fabsf(CursorShift - ShiftLow) <= fabsf(CursorShift - ShiftHigh) ? ShiftLow : ShiftHigh;
+
+				Placement.SetTranslation(Placement.GetTranslation() + TargetAxis * Shift);
+
+				// A little overlap is allowed, as pieces that touch share their faces.
+				const bool Interferes = std::any_of(Neighbors.begin(), Neighbors.end(), [&MovingBody, &Placement](const lcSnapNeighbor& Neighbor)
+				{
+					return DoesBodyBlock(MovingBody, Placement, Neighbor.Body, Neighbor.Transform, 0.5f);
+				});
+				const size_t Connections = Round ? FindConnections(MovingCylinders, Placement, PlacedShapes).size() : 0;
+
+				Candidates.push_back({ Placement, Interferes, Connections, HasKeptAngle && AngleIndex == 4 });
+			}
+
+			// A round connection leaves the angle free: keep the angle the piece was turned to, or
+			// else use the angles where the most of the moving piece's points connect, preferring
+			// those that run into nothing.
+			const auto Kept = std::find_if(Candidates.begin(), Candidates.end(), [](const lcAngleCandidate& Candidate) { return Candidate.Kept; });
+
+			if (KeepAngle && Kept != Candidates.end())
+				Candidates = { *Kept };
+			else if (Round && !Candidates.empty())
+			{
+				const auto Better = [](const lcAngleCandidate& a, const lcAngleCandidate& b)
+				{
+					return a.Interferes != b.Interferes ? !a.Interferes : a.Connections > b.Connections;
 				};
+				const lcAngleCandidate Preferred = *std::min_element(Candidates.begin(), Candidates.end(), Better);
 
-				std::vector<lcAngleCandidate> Candidates;
+				Candidates.erase(std::remove_if(Candidates.begin(), Candidates.end(), [&Preferred, &Better](const lcAngleCandidate& Candidate) { return Better(Preferred, Candidate); }), Candidates.end());
+			}
 
-				for (size_t AngleIndex = 0; AngleIndex < Angles.size(); AngleIndex++)
+			for (const lcAngleCandidate& Candidate : Candidates)
+			{
+				const lcMatrix44& Placement = Candidate.Placement;
+
+				// Running into another piece counts for more than any distance, so it only wins
+				// when every placement does.
+				const float PlacementScore = Candidate.Interferes ? Score + 1000.0f : Score;
+
+				if (PlacementScore > BestScore + 0.5f)
+					continue;
+
+				const lcMatrix33 Rotation(Placement);
+				float Trace = 0.0f;
+
+				for (int Row = 0; Row < 3; Row++)
+					Trace += lcDot(Rotation.r[Row], ReferenceRotation.r[Row]);
+
+				// Clearly better pairs win; between equally good ones, the closest rotation.
+				if (PlacementScore < BestScore - 0.5f || Trace > BestTrace)
 				{
-					lcMatrix44 Placement = lcMul(lcMul(MovingInverse, lcMatrix44RotationZ(Angles[AngleIndex])), Target.Frame);
-
-					if (!IsRigid(Placement))
-						continue;
-
-					// Along the axis, in the allowed range nearest the cursor, follow the cursor where the
-					// shapes can slide; otherwise take the end of the range nearer to it.
-					const float CursorShift = lcDot(HitPoint - lcMul31(GrabPoint, Placement), TargetAxis);
-					const std::pair<float, float>& ShiftRange = *std::min_element(ShiftRanges.begin(), ShiftRanges.end(), [CursorShift](const std::pair<float, float>& a, const std::pair<float, float>& b)
-					{
-						return fabsf(CursorShift - lcClamp(CursorShift, a.first, a.second)) < fabsf(CursorShift - lcClamp(CursorShift, b.first, b.second));
-					});
-					const float ShiftLow = ShiftRange.first;
-					const float ShiftHigh = ShiftRange.second;
-					float Shift;
-
-					if (Slide)
-						Shift = lcClamp(CursorShift, ShiftLow, ShiftHigh);
-					else
-						Shift = fabsf(CursorShift - ShiftLow) <= fabsf(CursorShift - ShiftHigh) ? ShiftLow : ShiftHigh;
-
-					Placement.SetTranslation(Placement.GetTranslation() + TargetAxis * Shift);
-
-					// A little overlap is allowed, as pieces that touch share their faces.
-					const bool Interferes = std::any_of(Neighbors.begin(), Neighbors.end(), [&MovingBody, &Placement](const lcSnapNeighbor& Neighbor)
-					{
-						return DoesBodyBlock(MovingBody, Placement, Neighbor.Body, Neighbor.Transform, 0.5f);
-					});
-					const size_t Connections = Round ? FindConnections(MovingCylinders, Placement, PlacedShapes).size() : 0;
-
-					Candidates.push_back({ Placement, Interferes, Connections, HasKeptAngle && AngleIndex == 4 });
-				}
-
-				// A round connection leaves the angle free: keep the angle the piece was turned to, or
-				// else use the angles where the most of the moving piece's points connect, preferring
-				// those that run into nothing.
-				const auto Kept = std::find_if(Candidates.begin(), Candidates.end(), [](const lcAngleCandidate& Candidate) { return Candidate.Kept; });
-
-				if (KeepAngle && Kept != Candidates.end())
-					Candidates = { *Kept };
-				else if (Round && !Candidates.empty())
-				{
-					const auto Better = [](const lcAngleCandidate& a, const lcAngleCandidate& b)
-					{
-						return a.Interferes != b.Interferes ? !a.Interferes : a.Connections > b.Connections;
-					};
-					const lcAngleCandidate Preferred = *std::min_element(Candidates.begin(), Candidates.end(), Better);
-
-					Candidates.erase(std::remove_if(Candidates.begin(), Candidates.end(), [&Preferred, &Better](const lcAngleCandidate& Candidate) { return Better(Preferred, Candidate); }), Candidates.end());
-				}
-
-				for (const lcAngleCandidate& Candidate : Candidates)
-				{
-					const lcMatrix44& Placement = Candidate.Placement;
-
-					// Running into another piece counts for more than any distance, so it only wins
-					// when every placement does.
-					const float PlacementScore = Candidate.Interferes ? Score + 1000.0f : Score;
-
-					if (PlacementScore > BestScore + 0.5f)
-						continue;
-
-					const lcMatrix33 Rotation(Placement);
-					float Trace = 0.0f;
-
-					for (int Row = 0; Row < 3; Row++)
-						Trace += lcDot(Rotation.r[Row], ReferenceRotation.r[Row]);
-
-					// Clearly better pairs win; between equally good ones, the closest rotation.
-					if (PlacementScore < BestScore - 0.5f || Trace > BestTrace)
-					{
-						BestTrace = PlacementScore < BestScore - 0.5f ? Trace : std::max(BestTrace, Trace);
-						BestScore = std::min(BestScore, PlacementScore);
-						PassBest = lcSnapMatch{ Placement, GetOverlapCenter(Moving, lcMul(MovingFrame, Placement), *Target.Cylinder, Target.Frame), TargetAxis, MaxRadius, {} };
-						PassBestInterferes = Candidate.Interferes;
-					}
+					BestTrace = PlacementScore < BestScore - 0.5f ? Trace : std::max(BestTrace, Trace);
+					BestScore = std::min(BestScore, PlacementScore);
+					PassBest = lcSnapMatch{ Placement, GetOverlapCenter(Moving, lcMul(MovingFrame, Placement), *Target.Cylinder, Target.Frame), TargetAxis, MaxRadius, {} };
+					PassBestInterferes = Candidate.Interferes;
 				}
 			}
 		}
