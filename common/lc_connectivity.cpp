@@ -265,7 +265,7 @@ std::optional<lcSnapMatch> lcConnectivity::FindMatch(const std::vector<lcConnect
 		if (Neighbor.Cylinders != &TargetCylinders || !(Neighbor.Transform == TargetTransform))
 			Shapes.emplace_back(Neighbor.Cylinders, Neighbor.Transform);
 
-	const std::vector<lcPlacedShape> PlacedShapes = PlaceShapes(Shapes);
+	const lcPlacedShapes PlacedShapes = PlaceShapes(Shapes);
 
 	// Snap info is in LDraw coordinates, pieces are in LeoCAD coordinates. In a
 	// converted snap frame the shape runs along local +Z instead of LDraw's -Y.
@@ -532,20 +532,57 @@ std::optional<lcSnapMatch> lcConnectivity::FindMatch(const std::vector<lcConnect
 	return Best;
 }
 
-std::vector<lcConnectivity::lcPlacedShape> lcConnectivity::PlaceShapes(const std::vector<std::pair<const std::vector<lcConnectionCylinder>*, lcMatrix44>>& Shapes)
+lcConnectivity::lcPlacedShapes lcConnectivity::PlaceShapes(const std::vector<std::pair<const std::vector<lcConnectionCylinder>*, lcMatrix44>>& Shapes)
 {
-	std::vector<lcPlacedShape> PlacedShapes;
+	lcPlacedShapes PlacedShapes;
 
 	for (const auto& [Cylinders, Transform] : Shapes)
 	{
 		for (const lcConnectionCylinder& Cylinder : *Cylinders)
 		{
 			const lcMatrix44 Frame = lcMul(lcMatrix44LDrawToLeoCAD(Cylinder.Transform), Transform);
-			PlacedShapes.push_back({ &Cylinder, Frame, lcNormalize(lcMul30(lcVector3(0.0f, 0.0f, 1.0f), Frame)) });
+			const lcVector3 Axis = lcNormalize(lcMul30(lcVector3(0.0f, 0.0f, 1.0f), Frame));
+			const size_t Index = PlacedShapes.Shapes.size();
+			int Direction, U, V;
+
+			PlacedShapes.Shapes.push_back({ &Cylinder, Frame, Axis });
+
+			if (GetLineCell(Frame.GetTranslation(), Axis, Direction, U, V))
+				PlacedShapes.Lines[GetLineKey(Direction, U, V)].push_back(Index);
+			else
+				PlacedShapes.Slanted.push_back(Index);
 		}
 	}
 
 	return PlacedShapes;
+}
+
+// The main direction an axis runs along (0 to 5), and the cell of the plane across it that its
+// line goes through; false if the axis runs along none of the main directions. The cells are
+// wider than the 0.5 LDU a connected shape may be off the line, which leaves room for axes a
+// little off their main direction.
+bool lcConnectivity::GetLineCell(const lcVector3& Position, const lcVector3& Axis, int& Direction, int& U, int& V)
+{
+	constexpr float CellSize = 4.0f;
+	int Main = 0;
+
+	for (int Index = 1; Index < 3; Index++)
+		if (fabsf(Axis[Index]) > fabsf(Axis[Main]))
+			Main = Index;
+
+	if (fabsf(Axis[Main]) < 0.999999f)
+		return false;
+
+	Direction = Main * 2 + (Axis[Main] < 0.0f ? 1 : 0);
+	U = (int)floorf(Position[(Main + 1) % 3] / CellSize);
+	V = (int)floorf(Position[(Main + 2) % 3] / CellSize);
+
+	return true;
+}
+
+quint64 lcConnectivity::GetLineKey(int Direction, int U, int V)
+{
+	return ((quint64)Direction << 56) | ((quint64)(U & 0xfffffff) << 28) | (quint64)(V & 0xfffffff);
 }
 
 std::vector<lcSnapConnection> lcConnectivity::FindConnections(const std::vector<lcConnectionCylinder>& Cylinders, const lcMatrix44& Transform, const std::vector<std::pair<const std::vector<lcConnectionCylinder>*, lcMatrix44>>& Others)
@@ -553,10 +590,11 @@ std::vector<lcSnapConnection> lcConnectivity::FindConnections(const std::vector<
 	return FindConnections(Cylinders, Transform, PlaceShapes(Others));
 }
 
-std::vector<lcSnapConnection> lcConnectivity::FindConnections(const std::vector<lcConnectionCylinder>& Cylinders, const lcMatrix44& Transform, const std::vector<lcPlacedShape>& Others)
+std::vector<lcSnapConnection> lcConnectivity::FindConnections(const std::vector<lcConnectionCylinder>& Cylinders, const lcMatrix44& Transform, const lcPlacedShapes& Others)
 {
 	std::vector<lcSnapConnection> Connections;
 	const lcVector3 ShapeAxis(0.0f, 0.0f, 1.0f);
+	std::vector<size_t> Nearby;
 
 	for (const lcConnectionCylinder& Cylinder : Cylinders)
 	{
@@ -564,9 +602,38 @@ std::vector<lcSnapConnection> lcConnectivity::FindConnections(const std::vector<
 		const lcVector3 Axis = lcNormalize(lcMul30(ShapeAxis, Frame));
 		std::optional<lcVector3> Center;
 		bool Round = false;
+		int Direction, U, V;
 
-		for (const lcPlacedShape& Other : Others)
+		// The shapes on lines near this one's, and the slanted ones, in the order of Others, so
+		// the first that connects is the same as when going through all of them.
+		if (GetLineCell(Frame.GetTranslation(), Axis, Direction, U, V))
 		{
+			Nearby = Others.Slanted;
+
+			for (int OffsetU = -1; OffsetU <= 1; OffsetU++)
+			{
+				for (int OffsetV = -1; OffsetV <= 1; OffsetV++)
+				{
+					const auto Line = Others.Lines.find(GetLineKey(Direction, U + OffsetU, V + OffsetV));
+
+					if (Line != Others.Lines.end())
+						Nearby.insert(Nearby.end(), Line->second.begin(), Line->second.end());
+				}
+			}
+
+			std::sort(Nearby.begin(), Nearby.end());
+		}
+		else
+		{
+			Nearby.resize(Others.Shapes.size());
+
+			for (size_t Index = 0; Index < Nearby.size(); Index++)
+				Nearby[Index] = Index;
+		}
+
+		for (size_t Index : Nearby)
+		{
+			const lcPlacedShape& Other = Others.Shapes[Index];
 			const lcConnectionCylinder& OtherCylinder = *Other.Cylinder;
 			const lcMatrix44& OtherFrame = Other.Frame;
 
@@ -602,7 +669,7 @@ std::vector<lcSnapConnection> lcConnectivity::FindConnections(const std::vector<
 
 std::optional<std::pair<lcVector3, lcMatrix33>> lcConnectivity::GetConnectionTurn(const std::vector<lcConnectionCylinder>& Cylinders, const lcMatrix44& Transform, const lcVector3& Center, const std::vector<std::pair<const std::vector<lcConnectionCylinder>*, lcMatrix44>>& Others, int Direction, const std::optional<std::array<lcVector3, 2>>& PointerRay)
 {
-	const std::vector<lcPlacedShape> PlacedOthers = PlaceShapes(Others);
+	const lcPlacedShapes PlacedOthers = PlaceShapes(Others);
 	const std::vector<lcSnapConnection> Connections = FindConnections(Cylinders, Transform, PlacedOthers);
 
 	if (Connections.empty())

@@ -164,8 +164,19 @@ private:
 		lcVector3 Axis;
 	};
 
-	static std::vector<lcPlacedShape> PlaceShapes(const std::vector<std::pair<const std::vector<lcConnectionCylinder>*, lcMatrix44>>& Shapes);
-	static std::vector<lcSnapConnection> FindConnections(const std::vector<lcConnectionCylinder>& Cylinders, const lcMatrix44& Transform, const std::vector<lcPlacedShape>& Others);
+	// Placed shapes, also sorted by the line each lies on: shapes only connect along the same
+	// line, so a shape need only be compared with those near its own.
+	struct lcPlacedShapes
+	{
+		std::vector<lcPlacedShape> Shapes;
+		std::unordered_map<quint64, std::vector<size_t>> Lines; // Indices into Shapes, by GetLineKey().
+		std::vector<size_t> Slanted; // Shapes not along one of the main directions.
+	};
+
+	static lcPlacedShapes PlaceShapes(const std::vector<std::pair<const std::vector<lcConnectionCylinder>*, lcMatrix44>>& Shapes);
+	static bool GetLineCell(const lcVector3& Position, const lcVector3& Axis, int& Direction, int& U, int& V);
+	static quint64 GetLineKey(int Direction, int U, int V);
+	static std::vector<lcSnapConnection> FindConnections(const std::vector<lcConnectionCylinder>& Cylinders, const lcMatrix44& Transform, const lcPlacedShapes& Others);
 	static bool AreSectionsCompatible(const lcConnectionSection& Male, const lcConnectionSection& Female);
 	static bool FitsAt(const lcConnectionCylinder& Male, const lcConnectionCylinder& Female, float Offset);
 	static bool IsSeated(const lcConnectionCylinder& Cylinder, const lcMatrix44& Frame, const lcConnectionCylinder& Other, const lcMatrix44& OtherFrame);
