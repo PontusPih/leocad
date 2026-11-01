@@ -403,6 +403,16 @@ std::optional<lcSnapMatch> lcConnectivity::FindMatch(const std::vector<lcConnect
 						Angles.push_back(Angle);
 				};
 
+				// The shapes around in the target point's frame, with their distance from its axis.
+				std::vector<std::pair<lcVector3, float>> Around;
+				Around.reserve(PlacedShapes.Shapes.size());
+
+				for (const lcPlacedShape& Other : PlacedShapes.Shapes)
+				{
+					const lcVector3 To = lcMul31(Other.Frame.GetTranslation(), TargetInverse);
+					Around.emplace_back(To, lcLength(lcVector3(To[0], To[1], 0.0f)));
+				}
+
 				for (const lcConnectionCylinder& OtherMoving : MovingCylinders)
 				{
 					const lcVector3 From = lcMul31(lcMatrix44LDrawToLeoCAD(OtherMoving.Transform).GetTranslation(), MovingInverse);
@@ -411,18 +421,16 @@ std::optional<lcSnapMatch> lcConnectivity::FindMatch(const std::vector<lcConnect
 					if (&OtherMoving == &Moving || FromRadius < 1.0f)
 						continue;
 
-					for (const auto& [OtherCylinders, OtherTransform] : Shapes)
+					// The distance test comes first: it rules out most shapes and costs less.
+					for (size_t Index = 0; Index < Around.size(); Index++)
 					{
-						for (const lcConnectionCylinder& OtherTarget : *OtherCylinders)
-						{
-							if (&OtherTarget == Target.Cylinder || !AreCompatible(OtherMoving, OtherTarget))
-								continue;
+						const auto& [To, ToRadius] = Around[Index];
+						const lcConnectionCylinder* OtherTarget = PlacedShapes.Shapes[Index].Cylinder;
 
-							const lcVector3 To = lcMul31(lcMul(lcMatrix44LDrawToLeoCAD(OtherTarget.Transform), OtherTransform).GetTranslation(), TargetInverse);
+						if (fabsf(ToRadius - FromRadius) >= 0.5f || OtherTarget == Target.Cylinder || !AreCompatible(OtherMoving, *OtherTarget))
+							continue;
 
-							if (fabsf(lcLength(lcVector3(To[0], To[1], 0.0f)) - FromRadius) < 0.5f)
-								AddAngle(atan2f(To[1], To[0]) - atan2f(From[1], From[0]));
-						}
+						AddAngle(atan2f(To[1], To[0]) - atan2f(From[1], From[0]));
 					}
 				}
 			}
